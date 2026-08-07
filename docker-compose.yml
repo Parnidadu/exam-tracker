@@ -28,7 +28,7 @@ services:
   api:
     build:
       context: ./backend
-    command: python app.py
+    command: python manage.py runserver 0.0.0.0:8000
     ports:
       - "8000:8000"
     env_file:
