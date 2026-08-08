@@ -1,6 +1,7 @@
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from simple_history.models import HistoricalRecords
 
 
 class Role(models.TextChoices):
@@ -51,6 +52,11 @@ class User(AbstractUser):
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []  # type: ignore[misc]
+
+    # password is excluded deliberately: copying hashes into a second,
+    # rarely-purged table widens where they live for no audit benefit -
+    # "the password changed" is already evident from the history row.
+    history = HistoricalRecords(excluded_fields=["password"])
 
     objects = UserManager()  # type: ignore[misc,assignment]
 

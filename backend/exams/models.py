@@ -6,6 +6,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.text import slugify
+from simple_history.models import HistoricalRecords
 
 
 def validate_timezone(value: str) -> None:
@@ -21,6 +22,8 @@ class Board(models.Model):
     official_url = models.URLField()
     timezone = models.CharField(max_length=64, default="UTC", validators=[validate_timezone])
     active = models.BooleanField(default=True)
+
+    history = HistoricalRecords()
 
     class Meta:
         ordering = ["name"]
@@ -38,6 +41,8 @@ class Exam(models.Model):
     cycle_year = models.PositiveIntegerField()
     category = models.CharField(max_length=100)
     slug = models.SlugField(max_length=255, unique=True, blank=True)
+
+    history = HistoricalRecords()
 
     class Meta:
         constraints = [
@@ -85,6 +90,8 @@ class ExamStage(models.Model):
     sequence = models.PositiveIntegerField()
     planned_start_date = models.DateField(null=True, blank=True)
     planned_end_date = models.DateField(null=True, blank=True)
+
+    history = HistoricalRecords()
 
     class Meta:
         constraints = [
@@ -135,6 +142,8 @@ class StatusTrack(models.Model):
     # custom user model later a painful AUTH_USER_MODEL migration.
     verified_by = models.CharField(max_length=255, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
+
+    history = HistoricalRecords()
 
     class Meta:
         constraints = [
