@@ -5,36 +5,16 @@ from django.db import IntegrityError
 from exams.models import Board
 
 
-@pytest.mark.django_db
-def test_board_str_returns_name():
-    board = Board.objects.create(
-        name="Union Public Service Commission",
-        code="UPSC",
-        official_url="https://upsc.gov.in",
-        timezone="Asia/Kolkata",
-    )
+def test_board_str_returns_name(board):
     assert str(board) == "Union Public Service Commission"
 
 
-@pytest.mark.django_db
-def test_board_defaults_to_active():
-    board = Board.objects.create(
-        name="Union Public Service Commission",
-        code="UPSC",
-        official_url="https://upsc.gov.in",
-        timezone="Asia/Kolkata",
-    )
+def test_board_defaults_to_active(board):
     assert board.active is True
 
 
 @pytest.mark.django_db
-def test_board_code_must_be_unique():
-    Board.objects.create(
-        name="Union Public Service Commission",
-        code="UPSC",
-        official_url="https://upsc.gov.in",
-        timezone="Asia/Kolkata",
-    )
+def test_board_code_must_be_unique(board):
     with pytest.raises(IntegrityError):
         Board.objects.create(
             name="Staff Selection Commission",
