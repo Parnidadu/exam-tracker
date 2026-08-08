@@ -19,6 +19,10 @@ class ExamSerializer(serializers.ModelSerializer):
 
 class StatusTrackSerializer(serializers.ModelSerializer):
     effective_status = serializers.ReadOnlyField()
+    # Exposed so the UI's freshness indicator doesn't have to reimplement
+    # STALENESS_WINDOW in JavaScript, where it could drift from the rule the
+    # resolver and the machine-overwrite guard both read.
+    is_verification_fresh = serializers.ReadOnlyField()
 
     class Meta:
         model = StatusTrack
@@ -31,6 +35,7 @@ class StatusTrackSerializer(serializers.ModelSerializer):
             "verified_by",
             "verified_at",
             "effective_status",
+            "is_verification_fresh",
         ]
 
 

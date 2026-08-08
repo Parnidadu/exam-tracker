@@ -1,1 +1,35 @@
 @import "tailwindcss";
+
+/*
+ * Status palette. These four roles are reserved for state and are never
+ * reused as ordinary series colours.
+ *
+ * On the light surface `warning` and `serious` sit below 3:1 contrast by
+ * design. The mitigation is that a status colour never carries meaning on
+ * its own: every badge ships an icon and a text label, and the label wears
+ * an ink token rather than the status colour. That keeps the component
+ * readable for colour-blind users, in greyscale print, and under
+ * forced-colors.
+ */
+:root {
+  --surface-1: #fcfcfb;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-neutral: #52514e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface-1: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    /* The four status steps are mode-invariant: all clear 3:1 on the dark
+       surface, so they carry across unchanged. */
+    --status-neutral: #c3c2b7;
+  }
+}

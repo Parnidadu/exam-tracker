@@ -61,3 +61,34 @@ def test_detail_uses_a_constant_number_of_queries_regardless_of_stage_count(
     assert response.status_code == 200
     assert len(response.json()["stages"]) == 3
     assert all(len(s["status_tracks"]) == 3 for s in response.json()["stages"])
+
+
+@pytest.mark.django_db
+def test_detail_exposes_verification_freshness_for_the_status_badge(client, exam):
+    """The UI badge reads freshness from the API rather than re-deriving
+    STALENESS_WINDOW in JavaScript, where it could drift."""
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    stage = ExamStage.objects.create(
+        exam=exam, stage_type=ExamStage.StageType.PRELIMS, sequence=1
+    )
+    StatusTrack.objects.create(
+        exam_stage=stage,
+        track=StatusTrack.Track.CONDUCT,
+        human_value="conducted",
+        verified_at=timezone.now() - timedelta(days=1),
+    )
+    StatusTrack.objects.create(
+        exam_stage=stage,
+        track=StatusTrack.Track.RESULT,
+        human_value="awaited",
+        verified_at=timezone.now() - StatusTrack.STALENESS_WINDOW - timedelta(days=1),
+    )
+
+    tracks = client.get(f"/api/exams/{exam.slug}/").json()["stages"][0]["status_tracks"]
+    freshness = {t["track"]: t["is_verification_fresh"] for t in tracks}
+
+    assert freshness["conduct"] is True
+    assert freshness["result"] is False
