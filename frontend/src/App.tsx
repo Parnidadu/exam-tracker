@@ -1,9 +1,26 @@
+import { Link, Route, Routes } from 'react-router-dom'
+
 import { Layout } from './components/Layout'
+import { VerifierConsole } from './features/verification/VerifierConsole'
+
+function Home() {
+  return (
+    <>
+      <p className="mb-2 text-gray-600">Dashboard coming soon.</p>
+      <Link to="/verify" className="text-sm underline">
+        Verifier console
+      </Link>
+    </>
+  )
+}
 
 function App() {
   return (
     <Layout>
-      <p className="text-gray-600">Dashboard coming soon.</p>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/verify" element={<VerifierConsole />} />
+      </Routes>
     </Layout>
   )
 }
