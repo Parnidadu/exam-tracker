@@ -1,6 +1,7 @@
 from zoneinfo import available_timezones
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils.text import slugify
 
@@ -94,3 +95,50 @@ class ExamStage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.exam} - {self.get_stage_type_display()}"
+
+
+class StatusTrack(models.Model):
+    """One of an ExamStage's three independent status tracks.
+
+    Status has two independent sources: what the scraper observed, and
+    what a human confirmed. They are never collapsed into one column -
+    see the machine_* / human_* fields below. Resolving them into a
+    single effective status is EXT-014's job, not this model's.
+    """
+
+    class Track(models.TextChoices):
+        CONDUCT = "conduct", "Conduct"
+        RESULT = "result", "Result"
+        INTEGRITY = "integrity", "Integrity"
+
+    exam_stage = models.ForeignKey(
+        ExamStage, on_delete=models.CASCADE, related_name="status_tracks"
+    )
+    track = models.CharField(max_length=20, choices=Track.choices)
+
+    machine_value = models.CharField(max_length=50, blank=True)
+    machine_confidence = models.FloatField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), MaxValueValidator(1.0)],
+    )
+    machine_seen_at = models.DateTimeField(null=True, blank=True)
+
+    human_value = models.CharField(max_length=50, blank=True)
+    # A plain identifier (e.g. email), not a User FK: auth/roles (EXT-020)
+    # don't exist yet, and FKing to auth.User now would make swapping in a
+    # custom user model later a painful AUTH_USER_MODEL migration.
+    verified_by = models.CharField(max_length=255, blank=True)
+    verified_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exam_stage", "track"],
+                name="unique_statustrack_exam_stage_track",
+            ),
+        ]
+        ordering = ["exam_stage", "track"]
+
+    def __str__(self) -> str:
+        return f"{self.exam_stage} - {self.get_track_display()}"

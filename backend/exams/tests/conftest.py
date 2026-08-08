@@ -1,6 +1,6 @@
 import pytest
 
-from exams.models import Board, Exam
+from exams.models import Board, Exam, ExamStage
 
 
 @pytest.fixture
@@ -21,4 +21,11 @@ def exam(board):
         name="Civil Services Examination",
         cycle_year=2026,
         category="Civil Services",
+    )
+
+
+@pytest.fixture
+def exam_stage(exam):
+    return ExamStage.objects.create(
+        exam=exam, stage_type=ExamStage.StageType.PRELIMS, sequence=1
     )
