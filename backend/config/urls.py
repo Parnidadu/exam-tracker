@@ -4,6 +4,7 @@ from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from exams.views import ExamDetailView, ExamListView
+from verification.views import VerifyStageView
 
 
 def health(request):
@@ -15,6 +16,7 @@ urlpatterns = [
     path("health/", health),
     path("api/exams/", ExamListView.as_view(), name="exam-list"),
     path("api/exams/<slug:slug>/", ExamDetailView.as_view(), name="exam-detail"),
+    path("api/stages/<int:pk>/verify/", VerifyStageView.as_view(), name="stage-verify"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
 ]
