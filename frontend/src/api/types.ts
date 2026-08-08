@@ -155,3 +155,14 @@ export const TRACK_VALUES: Record<Track, readonly string[]> = {
   result: ['declared', 'awaited', 'withheld'],
   integrity: ['clean', 'disputed', 'compromised'],
 }
+
+/** One stage milestone falling on one date, from GET /api/calendar/. */
+export interface CalendarEntry {
+  date: string
+  milestone: string
+  milestone_label: string
+  exam_slug: string
+  exam_name: string
+  board_code: string
+  stage_type: string
+}

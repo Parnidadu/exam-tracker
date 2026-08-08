@@ -1,5 +1,6 @@
 import type {
   Board,
+  CalendarEntry,
   ExamDetail,
   ExamFilters,
   ExamSummary,
@@ -85,4 +86,8 @@ export function verifyStage(stageId: number, payload: VerifyPayload): Promise<un
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+export function fetchCalendar(month: string): Promise<CalendarEntry[]> {
+  return request<CalendarEntry[]>(`/api/calendar/?month=${encodeURIComponent(month)}`)
 }
