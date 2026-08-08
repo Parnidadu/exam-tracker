@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 
 import { fetchExamDetail, fetchExamVerifications } from '../../api/client'
 import type { ExamDetail as ExamDetailData, Track, VerificationRecord } from '../../api/types'
+import { StageTimeline } from '../../components/StageTimeline'
 import { StatusBadge } from '../../components/StatusBadge'
 
 /** Key a history bucket by the stage + track it belongs to. */
@@ -114,6 +115,13 @@ export function ExamDetail() {
             {stage.stage_type}{' '}
             <span className="text-sm font-normal text-gray-500">#{stage.sequence}</span>
           </h3>
+
+          <div className="mb-4 rounded border border-gray-200 p-3">
+            <h4 className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">
+              Timeline
+            </h4>
+            <StageTimeline stage={stage} />
+          </div>
 
           {stage.status_tracks.length === 0 ? (
             <p className="text-sm text-gray-500">No status tracks yet.</p>

@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from exams.models import ExamStage, StatusTrack
@@ -92,3 +94,26 @@ def test_detail_exposes_verification_freshness_for_the_status_badge(client, exam
 
     assert freshness["conduct"] is True
     assert freshness["result"] is False
+
+
+@pytest.mark.django_db
+def test_detail_exposes_the_five_timeline_milestones(client, exam):
+    """The public timeline renders all five milestones, so all five must
+    come back - including the ones with no date yet."""
+    ExamStage.objects.create(
+        exam=exam,
+        stage_type=ExamStage.StageType.PRELIMS,
+        sequence=1,
+        notification_date=date(2026, 3, 1),
+        admit_card_date=date(2026, 5, 20),
+        exam_date=date(2026, 6, 1),
+    )
+
+    stage_data = client.get(f"/api/exams/{exam.slug}/").json()["stages"][0]
+
+    assert stage_data["notification_date"] == "2026-03-01"
+    assert stage_data["admit_card_date"] == "2026-05-20"
+    assert stage_data["exam_date"] == "2026-06-01"
+    # Present but null, rather than absent - the UI shows "Not announced".
+    assert stage_data["answer_key_date"] is None
+    assert stage_data["result_date"] is None

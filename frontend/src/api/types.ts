@@ -44,8 +44,24 @@ export interface ExamStageDetail {
   sequence: number
   planned_start_date: string | null
   planned_end_date: string | null
+  notification_date: string | null
+  admit_card_date: string | null
+  exam_date: string | null
+  answer_key_date: string | null
+  result_date: string | null
   status_tracks: StatusTrackDetail[]
 }
+
+/** The five timeline milestones, in the order a candidate meets them. */
+export const TIMELINE_MILESTONES = [
+  { key: 'notification_date', label: 'Notification' },
+  { key: 'admit_card_date', label: 'Admit card' },
+  { key: 'exam_date', label: 'Exam date' },
+  { key: 'answer_key_date', label: 'Answer key' },
+  { key: 'result_date', label: 'Result' },
+] as const satisfies readonly { key: keyof ExamStageDetail; label: string }[]
+
+export type TimelineMilestoneKey = (typeof TIMELINE_MILESTONES)[number]['key']
 
 export interface ExamDetail {
   id: number
