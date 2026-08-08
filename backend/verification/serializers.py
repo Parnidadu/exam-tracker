@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from exams.models import StatusTrack
 
+from .models import VerificationRecord
 from .queue import ReasonCode
 
 
@@ -45,3 +46,38 @@ class QueueItemSerializer(serializers.ModelSerializer):
             "verified_at",
             "effective_status",
         ]
+
+
+class VerificationRecordSerializer(serializers.ModelSerializer):
+    exam_stage_id = serializers.IntegerField(source="exam_stage.id", read_only=True)
+    stage_type = serializers.CharField(source="exam_stage.stage_type", read_only=True)
+    sequence = serializers.IntegerField(source="exam_stage.sequence", read_only=True)
+    actor = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VerificationRecord
+        fields = [
+            "id",
+            "exam_stage_id",
+            "stage_type",
+            "sequence",
+            "track",
+            "value",
+            "evidence_url",
+            "note",
+            "actor",
+            "timestamp",
+        ]
+
+    def get_actor(self, record: VerificationRecord) -> str | None:
+        """Who verified is shown to signed-in users only.
+
+        The history itself is public for transparency, but the actor is a
+        real staff email - publishing it to anonymous visitors would leak
+        personal data that the accountability story doesn't require.
+        """
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is not None and user.is_authenticated:
+            return record.actor.email
+        return None

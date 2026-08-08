@@ -24,6 +24,52 @@ export interface QueueItem {
   effective_status: string
 }
 
+/** Mirrors the backend's StatusTrackSerializer, nested in exam detail. */
+export interface StatusTrackDetail {
+  track: Track
+  machine_value: string
+  machine_confidence: number | null
+  machine_seen_at: string | null
+  human_value: string
+  verified_by: string
+  verified_at: string | null
+  effective_status: string
+}
+
+export interface ExamStageDetail {
+  id: number
+  stage_type: string
+  sequence: number
+  planned_start_date: string | null
+  planned_end_date: string | null
+  status_tracks: StatusTrackDetail[]
+}
+
+export interface ExamDetail {
+  id: number
+  board: { id: number; name: string; code: string }
+  code: string
+  name: string
+  cycle_year: number
+  category: string
+  slug: string
+  stages: ExamStageDetail[]
+}
+
+/** Mirrors VerificationRecordSerializer. `actor` is null for anonymous callers. */
+export interface VerificationRecord {
+  id: number
+  exam_stage_id: number
+  stage_type: string
+  sequence: number
+  track: Track
+  value: string
+  evidence_url: string
+  note: string
+  actor: string | null
+  timestamp: string
+}
+
 export interface Paginated<T> {
   count: number
   next: string | null
