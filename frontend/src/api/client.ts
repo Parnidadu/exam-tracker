@@ -1,4 +1,10 @@
-import type { Paginated, QueueItem, VerifyPayload } from './types'
+import type {
+  ExamDetail,
+  Paginated,
+  QueueItem,
+  VerificationRecord,
+  VerifyPayload,
+} from './types'
 
 /**
  * Django's SessionAuthentication enforces CSRF on unsafe methods, so POSTs
@@ -40,6 +46,18 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function fetchQueue(): Promise<Paginated<QueueItem>> {
   return request<Paginated<QueueItem>>('/api/verification-queue/')
+}
+
+export function fetchExamDetail(slug: string): Promise<ExamDetail> {
+  return request<ExamDetail>(`/api/exams/${encodeURIComponent(slug)}/`)
+}
+
+export function fetchExamVerifications(
+  slug: string,
+): Promise<Paginated<VerificationRecord>> {
+  return request<Paginated<VerificationRecord>>(
+    `/api/exams/${encodeURIComponent(slug)}/verifications/`,
+  )
 }
 
 export function verifyStage(stageId: number, payload: VerifyPayload): Promise<unknown> {

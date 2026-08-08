@@ -1,6 +1,7 @@
 import { Link, Route, Routes } from 'react-router-dom'
 
 import { Layout } from './components/Layout'
+import { ExamDetail } from './features/exams/ExamDetail'
 import { VerifierConsole } from './features/verification/VerifierConsole'
 
 function Home() {
@@ -19,6 +20,7 @@ function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/exams/:slug" element={<ExamDetail />} />
         <Route path="/verify" element={<VerifierConsole />} />
       </Routes>
     </Layout>

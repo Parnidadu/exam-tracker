@@ -8,7 +8,11 @@ from exams.serializers import StatusTrackSerializer
 
 from .models import VerificationRecord
 from .queue import ReasonCode, verification_queue
-from .serializers import QueueItemSerializer, VerifyStageSerializer
+from .serializers import (
+    QueueItemSerializer,
+    VerificationRecordSerializer,
+    VerifyStageSerializer,
+)
 
 
 @extend_schema(request=VerifyStageSerializer, responses=StatusTrackSerializer)
@@ -76,3 +80,22 @@ class VerificationQueueView(generics.ListAPIView):
         if reason_code:
             queryset = queryset.filter(reason_code=reason_code)
         return queryset
+
+
+class ExamVerificationHistoryView(generics.ListAPIView):
+    """GET /api/exams/<slug>/verifications/ - every verification recorded
+    against an exam's stages, newest first.
+
+    Kept off ExamDetailView on purpose: history grows without bound, and
+    that endpoint is tuned (EXT-018) for a fixed query count. Here the
+    list is paginated instead.
+    """
+
+    serializer_class = VerificationRecordSerializer
+
+    def get_queryset(self):
+        return (
+            VerificationRecord.objects.filter(exam_stage__exam__slug=self.kwargs["slug"])
+            .select_related("exam_stage", "actor")
+            .order_by("-timestamp", "-id")
+        )
