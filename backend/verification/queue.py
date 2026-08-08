@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
-from django.db.models import Case, F, IntegerField, Q, QuerySet, Value, When
+from django.db import models
+from django.db.models import Case, CharField, F, IntegerField, Q, QuerySet, Value, When
 from django.utils import timezone
 
 from exams.models import StatusTrack
@@ -11,6 +12,16 @@ from exams.models import StatusTrack
 CHANGED_PRIORITY = 1
 NO_UPDATE_PRIORITY = 2
 STALE_PRIORITY = 3
+
+
+class ReasonCode(models.TextChoices):
+    """Why an item is in the queue. Ordered here highest-priority first,
+    matching the *_PRIORITY constants above - the two are annotated from
+    the same predicates so a reason can never disagree with its rank."""
+
+    MACHINE_CHANGED = "machine_changed", "Machine observation contradicts the record"
+    DATE_ELAPSED_NO_UPDATE = "date_elapsed_no_update", "Planned date passed with no observation"
+    STALE_VERIFICATION = "stale_verification", "Verification has aged past the staleness window"
 
 
 def machine_changed_q() -> Q:
@@ -57,7 +68,7 @@ def verification_queue() -> QuerySet[StatusTrack]:
     stale = stale_q(staleness_cutoff)
 
     return (
-        StatusTrack.objects.select_related("exam_stage")
+        StatusTrack.objects.select_related("exam_stage", "exam_stage__exam")
         .filter(changed | no_update | stale)
         .annotate(
             queue_priority=Case(
@@ -66,7 +77,17 @@ def verification_queue() -> QuerySet[StatusTrack]:
                 When(stale, then=Value(STALE_PRIORITY)),
                 default=Value(STALE_PRIORITY + 1),
                 output_field=IntegerField(),
-            )
+            ),
+            # Same When() order as queue_priority above, off the same Q
+            # objects: an item's reason is always the one its rank came
+            # from, never a second independent guess at "why".
+            reason_code=Case(
+                When(changed, then=Value(ReasonCode.MACHINE_CHANGED)),
+                When(no_update, then=Value(ReasonCode.DATE_ELAPSED_NO_UPDATE)),
+                When(stale, then=Value(ReasonCode.STALE_VERIFICATION)),
+                default=Value(""),
+                output_field=CharField(),
+            ),
         )
         .order_by("queue_priority", "exam_stage", "track")
     )

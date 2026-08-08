@@ -4,7 +4,7 @@ from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from exams.views import ExamDetailView, ExamListView
-from verification.views import VerifyStageView
+from verification.views import VerificationQueueView, VerifyStageView
 
 
 def health(request):
@@ -17,6 +17,11 @@ urlpatterns = [
     path("api/exams/", ExamListView.as_view(), name="exam-list"),
     path("api/exams/<slug:slug>/", ExamDetailView.as_view(), name="exam-detail"),
     path("api/stages/<int:pk>/verify/", VerifyStageView.as_view(), name="stage-verify"),
+    path(
+        "api/verification-queue/",
+        VerificationQueueView.as_view(),
+        name="verification-queue",
+    ),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
 ]
