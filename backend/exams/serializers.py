@@ -66,3 +66,16 @@ class ExamDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Exam
         fields = ["id", "board", "code", "name", "cycle_year", "category", "slug", "stages"]
+
+
+class CalendarEntrySerializer(serializers.Serializer):
+    """One milestone falling on one date. Flattened deliberately: the
+    calendar needs date -> entries, not exam -> stages -> dates."""
+
+    date = serializers.DateField(read_only=True)
+    milestone = serializers.CharField(read_only=True)
+    milestone_label = serializers.CharField(read_only=True)
+    exam_slug = serializers.CharField(read_only=True)
+    exam_name = serializers.CharField(read_only=True)
+    board_code = serializers.CharField(read_only=True)
+    stage_type = serializers.CharField(read_only=True)

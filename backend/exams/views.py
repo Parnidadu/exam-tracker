@@ -1,12 +1,19 @@
+from calendar import monthrange
 from datetime import date
 
 from django.db.models import Prefetch, Q, QuerySet
+from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics
 from rest_framework.exceptions import ParseError
 
 from .models import Board, Exam, ExamStage, StatusTrack
-from .serializers import BoardSummarySerializer, ExamDetailSerializer, ExamSerializer
+from .serializers import (
+    BoardSummarySerializer,
+    CalendarEntrySerializer,
+    ExamDetailSerializer,
+    ExamSerializer,
+)
 
 
 def _parse_date(value: str, param_name: str) -> date:
@@ -172,3 +179,79 @@ class BoardListView(generics.ListAPIView):
     serializer_class = BoardSummarySerializer
     pagination_class = None
     queryset = Board.objects.filter(active=True).order_by("name")
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="month",
+            type=str,
+            description="Month to fetch, as YYYY-MM. Defaults to the current month.",
+        )
+    ],
+    responses=CalendarEntrySerializer(many=True),
+)
+class CalendarView(generics.ListAPIView):
+    """GET /api/calendar/?month=YYYY-MM - every stage milestone falling in
+    that month, one entry per (stage, milestone).
+
+    Flattened server-side because the calendar needs date -> entries; the
+    exam-detail shape would make the client unpick five nullable date
+    fields across every stage of every exam just to fill a grid.
+    """
+
+    serializer_class = CalendarEntrySerializer
+    pagination_class = None
+
+    def get_queryset(self):
+        first, last = self._month_bounds()
+        milestone_fields = [key for key, _ in ExamStage.TIMELINE_MILESTONES]
+
+        # One row per stage that has at least one milestone in range.
+        date_filter = Q()
+        for key in milestone_fields:
+            date_filter |= Q(**{f"{key}_date__range": (first, last)})
+
+        stages = (
+            ExamStage.objects.filter(date_filter)
+            .select_related("exam", "exam__board")
+            .order_by("exam__name", "sequence")
+        )
+
+        entries = []
+        for stage in stages:
+            for key, label in ExamStage.TIMELINE_MILESTONES:
+                value = getattr(stage, f"{key}_date")
+                if value is None or not (first <= value <= last):
+                    continue
+                entries.append(
+                    {
+                        "date": value,
+                        "milestone": key,
+                        "milestone_label": label,
+                        "exam_slug": stage.exam.slug,
+                        "exam_name": stage.exam.name,
+                        "board_code": stage.exam.board.code,
+                        "stage_type": stage.stage_type,
+                    }
+                )
+        entries.sort(key=lambda e: (e["date"], e["exam_name"], e["milestone"]))
+        return entries
+
+    def _month_bounds(self) -> tuple[date, date]:
+        raw = self.request.query_params.get("month")
+        today = timezone.now().date()
+        if not raw:
+            year, month = today.year, today.month
+        else:
+            try:
+                year_str, month_str = raw.split("-")
+                year, month = int(year_str), int(month_str)
+                if not 1 <= month <= 12:
+                    raise ValueError
+            except (ValueError, TypeError) as exc:
+                raise ParseError("month must be in YYYY-MM format.") from exc
+
+        first = date(year, month, 1)
+        last = date(year, month, monthrange(year, month)[1])
+        return first, last
