@@ -9,6 +9,12 @@ from django.utils.text import slugify
 from simple_history.models import HistoricalRecords
 
 
+class MachineOverwriteBlocked(Exception):
+    """Raised when a write would let machine-observed data overwrite a
+    human verification that is still fresh. See CLAUDE.md - status has two
+    independent sources and they are never collapsed."""
+
+
 def validate_timezone(value: str) -> None:
     if value not in available_timezones():
         raise ValidationError(f"{value!r} is not a valid IANA timezone name.")
@@ -158,11 +164,51 @@ class StatusTrack(models.Model):
         return f"{self.exam_stage} - {self.get_track_display()}"
 
     @property
-    def effective_status(self) -> str:
-        """The human value when verification is fresh (<= 14 days), else
-        the machine value. A resolver, not a column - see CLAUDE.md."""
-        is_fresh = (
+    def is_verification_fresh(self) -> bool:
+        """Whether the human verification still wins over the machine.
+
+        Single definition of "fresh": effective_status and the
+        machine-overwrite guard below both read it, so the two can never
+        disagree about which values a scraper is allowed to touch.
+        """
+        return (
             self.verified_at is not None
             and timezone.now() - self.verified_at <= self.STALENESS_WINDOW
         )
-        return self.human_value if is_fresh else self.machine_value
+
+    @property
+    def effective_status(self) -> str:
+        """The human value when verification is fresh (<= 14 days), else
+        the machine value. A resolver, not a column - see CLAUDE.md."""
+        return self.human_value if self.is_verification_fresh else self.machine_value
+
+    def save(self, *args, **kwargs):
+        """Backstop for CLAUDE.md's core rule: a scrape run that
+        contradicts a fresh human value must not write.
+
+        verification.observations.apply_machine_observation() is the
+        intended path and records a conflict instead of reaching here.
+        This guard exists so that "never overwrites" holds even for code
+        that writes the model directly - a future scraper, a management
+        command, or the admin - rather than only for callers who remember
+        to use the helper.
+        """
+        if self.pk is not None:
+            previous = StatusTrack.objects.filter(pk=self.pk).first()
+            if previous is not None and previous.is_verification_fresh:
+                machine_changed = (
+                    self.machine_value != previous.machine_value
+                    or self.machine_confidence != previous.machine_confidence
+                    or self.machine_seen_at != previous.machine_seen_at
+                )
+                # Agreeing with the human value is not a contradiction, so a
+                # scraper is still free to re-confirm what a verifier said.
+                contradicts_human = self.machine_value != previous.human_value
+                if machine_changed and contradicts_human:
+                    raise MachineOverwriteBlocked(
+                        f"Machine value {self.machine_value!r} contradicts the fresh "
+                        f"human value {previous.human_value!r} on {previous}. "
+                        "Use verification.observations.apply_machine_observation(), "
+                        "which records a conflict instead of overwriting."
+                    )
+        super().save(*args, **kwargs)

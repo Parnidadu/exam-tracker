@@ -53,3 +53,46 @@ class VerificationRecord(models.Model):
 
     def delete(self, *args, **kwargs):
         raise TypeError("VerificationRecord is append-only and cannot be deleted.")
+
+
+class MachineObservationConflict(models.Model):
+    """A machine observation refused because it contradicted a still-fresh
+    human verification.
+
+    Raised instead of writing. The observation's own values are kept here
+    so nothing the scraper claimed is lost, and a verifier can compare it
+    against the human value it disagreed with.
+    """
+
+    exam_stage = models.ForeignKey(
+        ExamStage, on_delete=models.PROTECT, related_name="machine_conflicts"
+    )
+    track = models.CharField(max_length=20, choices=StatusTrack.Track.choices)
+
+    # What the machine claimed, and was not allowed to write.
+    machine_value = models.CharField(max_length=50)
+    machine_confidence = models.FloatField(null=True, blank=True)
+    machine_seen_at = models.DateTimeField(null=True, blank=True)
+
+    # The fresh human verification it contradicted, captured as it stood at
+    # the moment of the conflict.
+    human_value = models.CharField(max_length=50)
+    verified_by = models.CharField(max_length=255, blank=True)
+    verified_at = models.DateTimeField()
+
+    detected_at = models.DateTimeField(auto_now_add=True)
+
+    # Annotation only, no assignment: Django still installs the default
+    # manager at runtime, but django-stubs doesn't synthesise `objects` for
+    # this model on its own (it does for models that declare one, like
+    # VerificationRecord above).
+    objects: models.Manager["MachineObservationConflict"]
+
+    class Meta:
+        ordering = ["-detected_at"]
+
+    def __str__(self) -> str:
+        return (
+            f"{self.exam_stage} - {self.track}: machine {self.machine_value!r} "
+            f"vs human {self.human_value!r}"
+        )
