@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 
 import { fetchExamDetail, fetchExamVerifications } from '../../api/client'
 import type { ExamDetail as ExamDetailData, Track, VerificationRecord } from '../../api/types'
+import { StatusBadge } from '../../components/StatusBadge'
 
 /** Key a history bucket by the stage + track it belongs to. */
 function bucketKey(stageId: number, track: Track): string {
@@ -124,13 +125,15 @@ export function ExamDetail() {
                   aria-label={`${stage.stage_type} ${track.track} track`}
                   className="rounded border border-gray-200 p-3"
                 >
-                  <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
+                  <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
                     <span className="font-medium text-gray-900 capitalize">{track.track}</span>
-                    <span className="text-sm text-gray-600">
-                      current:{' '}
-                      <strong data-testid={`current-${stage.id}-${track.track}`}>
-                        {track.effective_status || '—'}
-                      </strong>
+                    <span data-testid={`current-${stage.id}-${track.track}`}>
+                      <StatusBadge
+                        track={track.track}
+                        value={track.effective_status}
+                        isVerificationFresh={track.is_verification_fresh}
+                        verifiedAt={track.verified_at}
+                      />
                     </span>
                     <span className="text-xs text-gray-500">
                       machine: {track.machine_value || '—'} · human:{' '}

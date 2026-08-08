@@ -34,6 +34,8 @@ export interface StatusTrackDetail {
   verified_by: string
   verified_at: string | null
   effective_status: string
+  /** Server-computed, so the staleness window isn't duplicated client-side. */
+  is_verification_fresh: boolean
 }
 
 export interface ExamStageDetail {

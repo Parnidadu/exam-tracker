@@ -30,6 +30,7 @@ const EXAM: ExamDetailData = {
           verified_by: 'v@example.com',
           verified_at: '2026-06-03T00:00:00Z',
           effective_status: 'conducted',
+          is_verification_fresh: true,
         },
         {
           track: 'result',
@@ -40,6 +41,8 @@ const EXAM: ExamDetailData = {
           verified_by: 'v@example.com',
           verified_at: '2026-06-04T00:00:00Z',
           effective_status: 'awaited',
+          // Deliberately stale, so the page exercises both badge states.
+          is_verification_fresh: false,
         },
       ],
     },
@@ -92,6 +95,23 @@ describe('ExamDetail', () => {
 
     expect(await screen.findByTestId('current-10-conduct')).toHaveTextContent('conducted')
     expect(screen.getByTestId('current-10-result')).toHaveTextContent('awaited')
+  })
+
+  it('renders each track as a status badge carrying its own freshness', async () => {
+    mockApi([])
+    renderDetail()
+
+    const conduct = await screen.findByTestId('current-10-conduct')
+    const result = screen.getByTestId('current-10-result')
+
+    expect(within(conduct).getByTestId('status-badge')).toHaveAttribute(
+      'data-freshness',
+      'fresh',
+    )
+    expect(within(result).getByTestId('status-badge')).toHaveAttribute(
+      'data-freshness',
+      'stale',
+    )
   })
 
   it('lists past verifications for a track in reverse-chronological order', async () => {
