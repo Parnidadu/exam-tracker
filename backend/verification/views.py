@@ -1,5 +1,5 @@
 from django.db import transaction
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics, status
 from rest_framework.response import Response
 
@@ -7,7 +7,8 @@ from exams.models import ExamStage, StatusTrack
 from exams.serializers import StatusTrackSerializer
 
 from .models import VerificationRecord
-from .serializers import VerifyStageSerializer
+from .queue import ReasonCode, verification_queue
+from .serializers import QueueItemSerializer, VerifyStageSerializer
 
 
 @extend_schema(request=VerifyStageSerializer, responses=StatusTrackSerializer)
@@ -50,3 +51,28 @@ class VerifyStageView(generics.GenericAPIView):
             status_track.save()
 
         return Response(StatusTrackSerializer(status_track).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter(
+            name="reason_code",
+            enum=[choice.value for choice in ReasonCode],
+            description="Show only items queued for this reason.",
+        )
+    ]
+)
+class VerificationQueueView(generics.ListAPIView):
+    """GET /api/verification-queue/ - items needing a verifier's attention,
+    each carrying the reason code that put it there, highest priority
+    first. The queue itself (and its priority ranking) is EXT-023's
+    verification_queue(); this view serializes it and adds filtering."""
+
+    serializer_class = QueueItemSerializer
+
+    def get_queryset(self):
+        queryset = verification_queue()
+        reason_code = self.request.query_params.get("reason_code")
+        if reason_code:
+            queryset = queryset.filter(reason_code=reason_code)
+        return queryset
