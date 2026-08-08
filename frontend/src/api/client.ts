@@ -1,5 +1,8 @@
 import type {
+  Board,
   ExamDetail,
+  ExamFilters,
+  ExamSummary,
   Paginated,
   QueueItem,
   VerificationRecord,
@@ -46,6 +49,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export function fetchQueue(): Promise<Paginated<QueueItem>> {
   return request<Paginated<QueueItem>>('/api/verification-queue/')
+}
+
+export function fetchBoards(): Promise<Board[]> {
+  return request<Board[]>('/api/boards/')
+}
+
+export function fetchExams(
+  filters: Partial<ExamFilters>,
+  page = 1,
+): Promise<Paginated<ExamSummary>> {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value) params.set(key, value)
+  }
+  if (page > 1) params.set('page', String(page))
+  const query = params.toString()
+  return request<Paginated<ExamSummary>>(`/api/exams/${query ? `?${query}` : ''}`)
 }
 
 export function fetchExamDetail(slug: string): Promise<ExamDetail> {
