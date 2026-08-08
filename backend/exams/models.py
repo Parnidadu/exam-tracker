@@ -1,8 +1,10 @@
+from datetime import timedelta
 from zoneinfo import available_timezones
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.utils import timezone
 from django.utils.text import slugify
 
 
@@ -102,9 +104,12 @@ class StatusTrack(models.Model):
 
     Status has two independent sources: what the scraper observed, and
     what a human confirmed. They are never collapsed into one column -
-    see the machine_* / human_* fields below. Resolving them into a
-    single effective status is EXT-014's job, not this model's.
+    see the machine_* / human_* fields below.
     """
+
+    #: effective_status uses the human value while verification is this
+    #: fresh, otherwise it falls back to the machine value.
+    STALENESS_WINDOW = timedelta(days=14)
 
     class Track(models.TextChoices):
         CONDUCT = "conduct", "Conduct"
@@ -142,3 +147,13 @@ class StatusTrack(models.Model):
 
     def __str__(self) -> str:
         return f"{self.exam_stage} - {self.get_track_display()}"
+
+    @property
+    def effective_status(self) -> str:
+        """The human value when verification is fresh (<= 14 days), else
+        the machine value. A resolver, not a column - see CLAUDE.md."""
+        is_fresh = (
+            self.verified_at is not None
+            and timezone.now() - self.verified_at <= self.STALENESS_WINDOW
+        )
+        return self.human_value if is_fresh else self.machine_value
