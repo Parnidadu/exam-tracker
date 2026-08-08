@@ -1,12 +1,12 @@
 from datetime import date
 
-from django.db.models import Q, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics
 from rest_framework.exceptions import ParseError
 
-from .models import Exam, StatusTrack
-from .serializers import ExamSerializer
+from .models import Exam, ExamStage, StatusTrack
+from .serializers import ExamDetailSerializer, ExamSerializer
 
 
 def _parse_date(value: str, param_name: str) -> date:
@@ -98,3 +98,21 @@ class ExamListView(generics.ListAPIView):
                     ):
                         matching_ids.add(exam.pk)
         return queryset.filter(pk__in=matching_ids)
+
+
+class ExamDetailView(generics.RetrieveAPIView):
+    """GET /api/exams/<slug>/ - exam with all stages and each stage's three
+    status tracks, in a small constant number of queries (no N+1: one for
+    the exam, one for its stages, one for all of those stages' status
+    tracks) regardless of how many stages or tracks exist."""
+
+    serializer_class = ExamDetailSerializer
+    lookup_field = "slug"
+    queryset = Exam.objects.select_related("board").prefetch_related(
+        Prefetch(
+            "stages",
+            queryset=ExamStage.objects.order_by("sequence").prefetch_related(
+                Prefetch("status_tracks", queryset=StatusTrack.objects.order_by("track"))
+            ),
+        )
+    )
