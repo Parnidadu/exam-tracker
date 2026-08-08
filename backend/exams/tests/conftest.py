@@ -1,6 +1,6 @@
 import pytest
 
-from exams.models import Board
+from exams.models import Board, Exam
 
 
 @pytest.fixture
@@ -10,4 +10,15 @@ def board(db):
         code="UPSC",
         official_url="https://upsc.gov.in",
         timezone="Asia/Kolkata",
+    )
+
+
+@pytest.fixture
+def exam(board):
+    return Exam.objects.create(
+        board=board,
+        code="CSE",
+        name="Civil Services Examination",
+        cycle_year=2026,
+        category="Civil Services",
     )

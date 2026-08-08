@@ -61,3 +61,36 @@ class Exam(models.Model):
         if not self.slug:
             self.slug = self._generate_unique_slug()
         super().save(*args, **kwargs)
+
+
+class ExamStage(models.Model):
+    """A single stage of an exam, e.g. prelims, mains, interview.
+
+    Most exams are multi-stage and stages progress independently -
+    status tracking lives here, not on Exam (added in EXT-013).
+    """
+
+    class StageType(models.TextChoices):
+        PRELIMS = "prelims", "Prelims"
+        MAINS = "mains", "Mains"
+        INTERVIEW = "interview", "Interview"
+        SKILL = "skill", "Skill"
+        SINGLE = "single", "Single"
+
+    exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="stages")
+    stage_type = models.CharField(max_length=20, choices=StageType.choices)
+    sequence = models.PositiveIntegerField()
+    planned_start_date = models.DateField(null=True, blank=True)
+    planned_end_date = models.DateField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exam", "sequence"],
+                name="unique_examstage_exam_sequence",
+            ),
+        ]
+        ordering = ["exam", "sequence"]
+
+    def __str__(self) -> str:
+        return f"{self.exam} - {self.get_stage_type_display()}"
