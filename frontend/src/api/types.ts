@@ -70,6 +70,42 @@ export interface VerificationRecord {
   timestamp: string
 }
 
+export interface Board {
+  id: number
+  name: string
+  code: string
+}
+
+/** Mirrors ExamSerializer - the list-view shape, without nested stages. */
+export interface ExamSummary {
+  id: number
+  board: Board
+  code: string
+  name: string
+  cycle_year: number
+  category: string
+  slug: string
+}
+
+/** Query state for the public exam list, mirrored into the URL. */
+export interface ExamFilters {
+  search: string
+  board: string
+  conduct_status: string
+  result_status: string
+  start_date: string
+  end_date: string
+}
+
+export const EMPTY_FILTERS: ExamFilters = {
+  search: '',
+  board: '',
+  conduct_status: '',
+  result_status: '',
+  start_date: '',
+  end_date: '',
+}
+
 export interface Paginated<T> {
   count: number
   next: string | null

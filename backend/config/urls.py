@@ -3,7 +3,7 @@ from django.http import JsonResponse
 from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from exams.views import ExamDetailView, ExamListView
+from exams.views import BoardListView, ExamDetailView, ExamListView
 from verification.views import (
     ExamVerificationHistoryView,
     VerificationQueueView,
@@ -18,6 +18,7 @@ def health(request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health),
+    path("api/boards/", BoardListView.as_view(), name="board-list"),
     path("api/exams/", ExamListView.as_view(), name="exam-list"),
     path("api/exams/<slug:slug>/", ExamDetailView.as_view(), name="exam-detail"),
     path(
