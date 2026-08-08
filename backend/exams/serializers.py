@@ -50,6 +50,11 @@ class ExamStageSerializer(serializers.ModelSerializer):
             "sequence",
             "planned_start_date",
             "planned_end_date",
+            "notification_date",
+            "admit_card_date",
+            "exam_date",
+            "answer_key_date",
+            "result_date",
             "status_tracks",
         ]
 

@@ -20,6 +20,11 @@ const EXAM: ExamDetailData = {
       sequence: 1,
       planned_start_date: '2026-06-01',
       planned_end_date: '2026-06-01',
+      notification_date: '2026-03-01',
+      admit_card_date: '2026-05-20',
+      exam_date: '2026-06-01',
+      answer_key_date: null,
+      result_date: null,
       status_tracks: [
         {
           track: 'conduct',
@@ -95,6 +100,21 @@ describe('ExamDetail', () => {
 
     expect(await screen.findByTestId('current-10-conduct')).toHaveTextContent('conducted')
     expect(screen.getByTestId('current-10-result')).toHaveTextContent('awaited')
+  })
+
+  it('renders a stage timeline with all five milestones', async () => {
+    mockApi([])
+    renderDetail()
+
+    const timeline = await screen.findByTestId('timeline-10')
+    expect(within(timeline).getAllByRole('listitem')).toHaveLength(5)
+    expect(within(timeline).getByText('Notification')).toBeInTheDocument()
+    expect(within(timeline).getByText('Result')).toBeInTheDocument()
+    // Milestones with no date still appear, marked as unannounced.
+    expect(screen.getByTestId('milestone-10-result_date')).toHaveAttribute(
+      'data-state',
+      'unannounced',
+    )
   })
 
   it('renders each track as a status badge carrying its own freshness', async () => {

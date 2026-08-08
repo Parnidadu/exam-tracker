@@ -13,7 +13,20 @@ class BoardAdmin(admin.ModelAdmin):
 class ExamStageInline(admin.TabularInline):
     model = ExamStage
     extra = 1
-    fields = ("stage_type", "sequence", "planned_start_date", "planned_end_date")
+    # Timeline milestones are editable here too - without this, the fields
+    # exist but staff have no way to fill them in short of the shell, which
+    # is the gap EXT-015 exists to prevent.
+    fields = (
+        "stage_type",
+        "sequence",
+        "planned_start_date",
+        "planned_end_date",
+        "notification_date",
+        "admit_card_date",
+        "exam_date",
+        "answer_key_date",
+        "result_date",
+    )
 
 
 @admin.register(Exam)

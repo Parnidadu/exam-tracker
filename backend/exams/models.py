@@ -91,11 +91,31 @@ class ExamStage(models.Model):
         SKILL = "skill", "Skill"
         SINGLE = "single", "Single"
 
+    #: The public timeline's milestones, in the order a candidate meets
+    #: them. Each maps to a nullable date field below; any of them may be
+    #: unknown, which the UI renders as "date not announced" rather than
+    #: hiding the step.
+    TIMELINE_MILESTONES = (
+        ("notification", "Notification"),
+        ("admit_card", "Admit card"),
+        ("exam", "Exam date"),
+        ("answer_key", "Answer key"),
+        ("result", "Result"),
+    )
+
     exam = models.ForeignKey(Exam, on_delete=models.CASCADE, related_name="stages")
     stage_type = models.CharField(max_length=20, choices=StageType.choices)
     sequence = models.PositiveIntegerField()
     planned_start_date = models.DateField(null=True, blank=True)
     planned_end_date = models.DateField(null=True, blank=True)
+
+    # Timeline milestones. Separate from planned_start/end_date, which stay
+    # as the scheduling window the date-range filter (EXT-017) queries.
+    notification_date = models.DateField(null=True, blank=True)
+    admit_card_date = models.DateField(null=True, blank=True)
+    exam_date = models.DateField(null=True, blank=True)
+    answer_key_date = models.DateField(null=True, blank=True)
+    result_date = models.DateField(null=True, blank=True)
 
     history = HistoricalRecords()
 
