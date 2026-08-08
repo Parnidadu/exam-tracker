@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "accounts",
     "exams",
+    "verification",
 ]
 
 AUTH_USER_MODEL = "accounts.User"
