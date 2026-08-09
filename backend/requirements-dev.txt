@@ -3,6 +3,7 @@
 ruff>=0.6,<0.7
 mypy>=1.11,<1.12
 types-croniter>=3.0,<4.0
+types-requests>=2.32,<3.0
 django-stubs>=5.0,<5.1
 pytest>=8.3,<8.4
 pytest-django>=4.9,<4.10

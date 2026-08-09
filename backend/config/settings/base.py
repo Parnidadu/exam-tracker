@@ -116,6 +116,24 @@ CACHES = {
 #: staleness from writes that do not (scraper runs, admin edits).
 PUBLIC_CACHE_TTL = int(os.environ.get("PUBLIC_CACHE_TTL", "60"))
 
+# --- Scraper politeness (EXT-041) -------------------------------------
+#: Sent on every scrape request so operators can identify and contact us.
+SCRAPER_USER_AGENT = os.environ.get(
+    "SCRAPER_USER_AGENT",
+    "ExamTrackerBot/1.0 (+https://github.com/parnidadu/exam-tracker)",
+)
+#: Minimum gap between two requests to the same domain.
+SCRAPER_RATE_LIMIT_SECONDS = float(os.environ.get("SCRAPER_RATE_LIMIT_SECONDS", "2"))
+#: Give up waiting for a domain's slot after this long.
+SCRAPER_RATE_LIMIT_MAX_WAIT = float(os.environ.get("SCRAPER_RATE_LIMIT_MAX_WAIT", "30"))
+#: Total attempts per URL, including the first.
+SCRAPER_MAX_ATTEMPTS = int(os.environ.get("SCRAPER_MAX_ATTEMPTS", "3"))
+#: First backoff pause; doubles each retry.
+SCRAPER_BACKOFF_BASE = float(os.environ.get("SCRAPER_BACKOFF_BASE", "1"))
+SCRAPER_TIMEOUT = float(os.environ.get("SCRAPER_TIMEOUT", "10"))
+#: How long a fetched robots.txt stays cached.
+SCRAPER_ROBOTS_TTL = int(os.environ.get("SCRAPER_ROBOTS_TTL", "3600"))
+
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
