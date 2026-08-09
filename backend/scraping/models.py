@@ -91,3 +91,43 @@ class Source(models.Model):
         super().clean()
         if self.cron:
             validate_cron(self.cron)
+
+
+class Snapshot(models.Model):
+    """A distinct version of a source's raw HTML.
+
+    One row per *distinct* body, not per fetch. A fetch that returns
+    identical content bumps `last_seen_at` on the existing row instead of
+    inserting a near-duplicate, which is what makes the store's size track
+    how often a board actually changes rather than how often it is polled.
+    """
+
+    source = models.ForeignKey(Source, on_delete=models.CASCADE, related_name="snapshots")
+    url = models.URLField(max_length=500)
+    #: sha256 of the raw bytes, before any decoding - decoding first would
+    #: let two different byte sequences collapse to the same "text".
+    content_hash = models.CharField(max_length=64, db_index=True)
+    content = models.TextField()
+    status_code = models.PositiveSmallIntegerField()
+
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    #: Refreshed every time this same content comes back, so an unchanged
+    #: page still records that the source was reachable.
+    last_seen_at = models.DateTimeField(auto_now_add=True)
+    #: How many fetches have returned this exact body.
+    times_seen = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source", "content_hash"],
+                name="unique_snapshot_source_content_hash",
+            ),
+        ]
+        # -id breaks ties: two snapshots stored in the same instant would
+        # otherwise order arbitrarily, making "the latest" nondeterministic.
+        ordering = ["-last_seen_at", "-id"]
+        indexes = [models.Index(fields=["source", "-last_seen_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.source} @ {self.content_hash[:12]}"
