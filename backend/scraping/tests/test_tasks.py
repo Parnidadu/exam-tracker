@@ -4,6 +4,7 @@ import pytest
 
 from exams.models import Board
 from scraping.fetch import FetchFailed, RobotsDisallowed
+from scraping.health import health_for
 from scraping.models import Snapshot, Source
 from scraping.tasks import scrape_source
 
@@ -110,3 +111,78 @@ def _stub_result(source, *, changed):
         status_code=200,
     )
     return SnapshotResult(snapshot=snapshot, changed=changed)
+
+
+# --- EXT-047: runs feed source health ---------------------------------
+
+
+def test_a_successful_run_is_recorded_on_the_source_health(source, monkeypatch):
+    monkeypatch.setattr(
+        "scraping.tasks.fetch_and_store",
+        lambda s: _stub_result(s, changed=True),
+    )
+
+    scrape_source(source.pk)
+
+    assert health_for(source).last_success_at is not None
+
+
+def test_a_failed_run_increments_the_failure_count(source, monkeypatch):
+    def boom(_source):
+        raise FetchFailed("502 from the board")
+
+    monkeypatch.setattr("scraping.tasks.fetch_and_store", boom)
+
+    result = scrape_source(source.pk)
+
+    health = health_for(source)
+    assert health.consecutive_failures == 1
+    assert health.last_error == "502 from the board"
+    # Surfaced in the task result too, so a run's outcome is legible
+    # without opening admin.
+    assert result["consecutive_failures"] == 1
+
+
+def test_recovery_clears_the_streak(source, monkeypatch):
+    def boom(_source):
+        raise FetchFailed("down")
+
+    monkeypatch.setattr("scraping.tasks.fetch_and_store", boom)
+    scrape_source(source.pk)
+    scrape_source(source.pk)
+    assert health_for(source).consecutive_failures == 2
+
+    monkeypatch.setattr(
+        "scraping.tasks.fetch_and_store",
+        lambda s: _stub_result(s, changed=True),
+    )
+    scrape_source(source.pk)
+
+    assert health_for(source).consecutive_failures == 0
+
+
+def test_a_skipped_disabled_source_is_not_counted_as_a_failure(source):
+    source.enabled = False
+    source.save()
+
+    scrape_source(source.pk)
+
+    assert health_for(source).consecutive_failures == 0
+
+
+def test_an_unexpected_error_is_recorded_as_a_failure_and_still_raised(source, monkeypatch):
+    """Health that ignored unexpected errors would show a source as fine
+    while it broke on every tick - but swallowing them would hide the
+    traceback, so it is recorded and re-raised."""
+
+    def boom(_source):
+        raise ValueError("something nobody predicted")
+
+    monkeypatch.setattr("scraping.tasks.fetch_and_store", boom)
+
+    with pytest.raises(ValueError):
+        scrape_source(source.pk)
+
+    health = health_for(source)
+    assert health.consecutive_failures == 1
+    assert "ValueError" in health.last_error

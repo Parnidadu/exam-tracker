@@ -1,11 +1,16 @@
 """The acceptance criterion is about admin, so these drive the real admin
 views rather than asserting the model in isolation."""
 
+from datetime import timedelta
+
 import pytest
 from django.contrib import admin
+from django.utils import timezone
 from django_celery_beat.models import PeriodicTask
 
-from scraping.models import Source
+from scraping.admin import SourceHealthAdmin
+from scraping.health import health_for, record_failure, record_success
+from scraping.models import Source, SourceHealth
 from scraping.schedules import schedule_name
 
 
@@ -184,3 +189,102 @@ def test_the_source_list_shows_what_beat_will_do(admin_client, source):
 
     assert response.status_code == 200
     assert b"not yet run" in response.content
+
+
+# --- EXT-047: the source health dashboard ------------------------------
+
+
+@pytest.mark.django_db
+def test_the_health_dashboard_lists_every_source(admin_client, source):
+    """Including one that has never run - a newly added source is the one
+    most likely to be misconfigured."""
+    response = admin_client.get("/admin/scraping/sourcehealth/")
+
+    assert response.status_code == 200
+    assert source.name.encode() in response.content
+    assert b"not yet run" in response.content
+
+
+@pytest.mark.django_db
+def test_the_dashboard_shows_last_success_last_failure_and_the_streak(admin_client, source):
+    record_failure(source, "502 from the board")
+    record_failure(source, "502 from the board")
+
+    response = admin_client.get("/admin/scraping/sourcehealth/")
+    body = response.content.decode()
+    health = health_for(source)
+
+    # All three criterion columns are present as columns, not just as data
+    # that happens to exist on the model.
+    for column in ("last_success_at", "last_failure_at", "consecutive_failures"):
+        assert f"column-{column}" in body
+
+    assert str(health.last_failure_at.year) in body
+    assert "502 from the board" in body
+    assert ">2<" in body  # the streak itself
+
+
+@pytest.mark.django_db
+def test_a_failing_source_is_visibly_different_from_a_healthy_one(admin_client, source, board):
+    other = Source.objects.create(
+        board=board, name="healthy one", url="https://x.gov.in/ok", parser_key="ok"
+    )
+    record_success(other)
+    record_failure(source, "down")
+
+    body = admin_client.get("/admin/scraping/sourcehealth/").content.decode()
+
+    assert "failing (1)" in body
+    assert ">ok<" in body
+
+
+@pytest.mark.django_db
+def test_a_stale_source_is_called_stale_not_merely_failing(admin_client, source):
+    """The two faults are different: a failing source is shouting, a stale
+    one has gone quiet."""
+    health = health_for(source)
+    health.last_success_at = timezone.now() - timedelta(days=30)
+    health.save()
+
+    body = admin_client.get("/admin/scraping/sourcehealth/").content.decode()
+
+    assert "stale" in body
+
+
+@pytest.mark.django_db
+def test_the_dashboard_can_be_filtered_to_the_overdue_sources(admin_client, source, board):
+    healthy = Source.objects.create(
+        board=board, name="healthy one", url="https://x.gov.in/ok", parser_key="ok"
+    )
+    record_success(healthy)
+    stale = health_for(source)
+    stale.last_success_at = timezone.now() - timedelta(days=30)
+    stale.save()
+
+    body = admin_client.get("/admin/scraping/sourcehealth/?stale=yes").content.decode()
+
+    assert source.name in body
+    assert "healthy one" not in body
+
+
+@pytest.mark.django_db
+def test_health_is_read_only(admin_client, source):
+    """Every value here is something a run observed; editing one would be
+    editing the record of what happened."""
+    health = health_for(source)
+    response = admin_client.get(f"/admin/scraping/sourcehealth/{health.pk}/change/")
+
+    # Django redirects change -> view when change permission is withheld.
+    assert response.status_code in (200, 302)
+    assert not SourceHealthAdmin(SourceHealth, admin.site).has_change_permission(None)
+    assert not SourceHealthAdmin(SourceHealth, admin.site).has_add_permission(None)
+
+
+@pytest.mark.django_db
+def test_the_source_list_shows_health_beside_the_schedule(admin_client, source):
+    """The page an operator is already on when a board looks wrong."""
+    record_failure(source, "down")
+
+    body = admin_client.get("/admin/scraping/source/").content.decode()
+
+    assert "failing (1)" in body

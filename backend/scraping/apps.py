@@ -24,3 +24,8 @@ class ScrapingConfig(AppConfig):
         from . import schedules
 
         schedules.connect()
+
+        # EXT-047: give every source a health row from the moment it exists.
+        from . import health
+
+        health.connect()

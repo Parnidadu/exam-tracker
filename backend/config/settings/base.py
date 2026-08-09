@@ -135,6 +135,13 @@ SCRAPER_TIMEOUT = float(os.environ.get("SCRAPER_TIMEOUT", "10"))
 #: How long a fetched robots.txt stays cached.
 SCRAPER_ROBOTS_TTL = int(os.environ.get("SCRAPER_ROBOTS_TTL", "3600"))
 
+# --- Source health (EXT-047) ------------------------------------------
+#: How many of a source's own scheduled runs may be missed before it is
+#: called stale. Counted against that source's cron rather than a fixed
+#: duration, so it means the same thing for an hourly and a weekly board.
+#: Three allows for a board being briefly down without crying wolf.
+SOURCE_STALE_AFTER_MISSED_RUNS = int(os.environ.get("SOURCE_STALE_AFTER_MISSED_RUNS", "3"))
+
 # --- Celery (EXT-046) -------------------------------------------------
 # Falls back to the Redis already provisioned in Compose, then to a local
 # default, so `manage.py` and the test suite work without a broker.

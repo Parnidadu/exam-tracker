@@ -13,6 +13,7 @@ import logging
 from celery import shared_task
 
 from .fetch import FetchError
+from .health import record_failure, record_success, touch
 from .models import Source
 from .snapshots import fetch_and_store
 
@@ -43,15 +44,32 @@ def scrape_source(source_id: int) -> dict[str, object]:
         # Belt and braces. Disabling a source disables its PeriodicTask, so
         # this should not normally be reached - but a task already sitting
         # in the queue when the toggle happened would otherwise still run.
+        # Recorded as neither success nor failure (EXT-047): pausing a
+        # source deliberately is not a fault.
         logger.info("scrape_source: source %s is disabled, skipping", source_id)
+        touch(source)
         return {"source_id": source_id, "status": "disabled"}
 
     try:
         result = fetch_and_store(source)
     except FetchError as exc:
         logger.warning("scrape_source: %s failed: %s", source, exc)
-        return {"source_id": source_id, "status": "failed", "error": str(exc)}
+        health = record_failure(source, str(exc))
+        return {
+            "source_id": source_id,
+            "status": "failed",
+            "error": str(exc),
+            "consecutive_failures": health.consecutive_failures,
+        }
+    except Exception as exc:
+        # An unexpected error is still a failed run, and health that
+        # ignored it would show a source as fine while it broke on every
+        # tick. Recorded and re-raised: EXT-046 lets these propagate on
+        # purpose, so the traceback still reaches Sentry.
+        record_failure(source, f"{type(exc).__name__}: {exc}")
+        raise
 
+    record_success(source)
     logger.info(
         "scrape_source: %s stored snapshot %s (changed=%s)",
         source,
