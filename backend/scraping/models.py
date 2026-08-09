@@ -93,6 +93,48 @@ class Source(models.Model):
             validate_cron(self.cron)
 
 
+class SourceHealth(models.Model):
+    """Whether a source is actually working, as opposed to how it is
+    configured.
+
+    Deliberately not fields on `Source`. Source is human-edited config
+    carrying HistoricalRecords, so writing scrape outcomes onto it would
+    put a history row through the audit trail on every single run - and
+    the audit trail exists to answer "who changed this config", a question
+    a machine writing a timestamp every ten minutes makes unanswerable.
+    Keeping the machine's observations in their own table is the same
+    separation the status tracks make between machine and human values.
+    """
+
+    source = models.OneToOneField(Source, on_delete=models.CASCADE, related_name="health")
+
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    last_failure_at = models.DateTimeField(null=True, blank=True)
+    #: Reset to zero by any success. A source failing twice a day for a
+    #: week is a different problem from one that has failed 40 times in a
+    #: row, and only this counter tells them apart.
+    consecutive_failures = models.PositiveIntegerField(default=0)
+    #: Why the most recent failure failed, kept so the admin dashboard can
+    #: say what is wrong rather than only that something is.
+    last_error = models.TextField(blank=True)
+    #: Set on every run, success or failure. A source whose task is not
+    #: running at all shows up as a stale last_checked_at even though
+    #: neither of the two timestamps above has moved.
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "source health"
+        verbose_name_plural = "source health"
+        ordering = ["-consecutive_failures", "source__name"]
+
+    def __str__(self) -> str:
+        return f"{self.source} health"
+
+    @property
+    def has_ever_succeeded(self) -> bool:
+        return self.last_success_at is not None
+
+
 class Snapshot(models.Model):
     """A distinct version of a source's raw HTML.
 
