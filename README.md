@@ -30,6 +30,18 @@ The app is then available at:
 - API: http://localhost:8000
 - Frontend: http://localhost:5173
 
+## Scheduled scraping
+
+Compose runs a Celery `worker` and a `beat` scheduler. Beat's schedule is not
+configured in code — it is derived from the `Source` rows in
+`/admin/scraping/source/`, so changing when a board is polled, or pausing one
+that is misbehaving, is an admin edit that takes effect on the running
+scheduler. No restart, no deploy.
+
+```bash
+docker compose logs -f beat worker
+```
+
 ## Tests
 
 ```bash
