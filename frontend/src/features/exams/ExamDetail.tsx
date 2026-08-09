@@ -35,7 +35,9 @@ function TrackHistory({ records }: { records: VerificationRecord[] }) {
             {record.actor ? (
               <span>by {record.actor}</span>
             ) : (
-              <span className="text-gray-400">by a verifier (sign in to see who)</span>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                by a verifier (sign in to see who)
+              </span>
             )}
             {record.evidence_url && (
               <>
