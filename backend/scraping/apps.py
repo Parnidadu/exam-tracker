@@ -19,3 +19,8 @@ class ScrapingConfig(AppConfig):
 
         for module in pkgutil.iter_modules(board_parsers.__path__):
             import_module(f"{board_parsers.__name__}.{module.name}")
+
+        # EXT-046: keep Beat's schedule in step with the Source table.
+        from . import schedules
+
+        schedules.connect()

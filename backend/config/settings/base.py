@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "drf_spectacular",
     "simple_history",
+    "django_celery_beat",
     "accounts",
     "exams",
     "scraping",
@@ -133,6 +134,36 @@ SCRAPER_BACKOFF_BASE = float(os.environ.get("SCRAPER_BACKOFF_BASE", "1"))
 SCRAPER_TIMEOUT = float(os.environ.get("SCRAPER_TIMEOUT", "10"))
 #: How long a fetched robots.txt stays cached.
 SCRAPER_ROBOTS_TTL = int(os.environ.get("SCRAPER_ROBOTS_TTL", "3600"))
+
+# --- Celery (EXT-046) -------------------------------------------------
+# Falls back to the Redis already provisioned in Compose, then to a local
+# default, so `manage.py` and the test suite work without a broker.
+CELERY_BROKER_URL = os.environ.get(
+    "CELERY_BROKER_URL", os.environ.get("REDIS_URL", "redis://redis:6379/0")
+)
+CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+
+#: The whole point of the ticket. The default scheduler reads its schedule
+#: once at startup from a Python dict, so a source enabled in admin would
+#: not run until beat was restarted. The database scheduler re-reads the
+#: schedule when it changes, which is what makes an admin toggle take
+#: effect on a running process.
+CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_ACCEPT_CONTENT = ["json"]
+
+#: A scrape that hangs must not hold a worker slot forever, or a source
+#: with a broken endpoint slowly starves every other source.
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "300"))
+CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "360"))
+
+#: Redelivery on worker loss is wrong for scraping: the run is periodic, so
+#: a lost task is picked up by the next tick rather than re-fetching a
+#: board we may already have hit.
+CELERY_TASK_ACKS_LATE = False
 
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",

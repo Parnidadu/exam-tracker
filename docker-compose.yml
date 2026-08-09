@@ -47,7 +47,7 @@ services:
   worker:
     build:
       context: ./backend
-    command: python worker.py
+    command: celery -A config worker --loglevel=info
     env_file:
       - .env
     depends_on:
@@ -56,8 +56,32 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "test", "-f", "/tmp/worker_heartbeat"]
-      interval: 5s
+      # Round-trips through the broker, so this proves the worker can
+      # actually receive work rather than merely that the process is up.
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  beat:
+    build:
+      context: ./backend
+    # No --scheduler flag: CELERY_BEAT_SCHEDULER in settings already
+    # selects the database scheduler, and passing it in two places invites
+    # them to disagree.
+    command: celery -A config beat --loglevel=info --pidfile=/tmp/celerybeat.pid
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # Beat does not answer inspect pings - it only sends. Checking its
+      # pid is alive is the honest test.
+      test: ["CMD-SHELL", "kill -0 $$(cat /tmp/celerybeat.pid)"]
+      interval: 10s
       timeout: 5s
       retries: 5
 

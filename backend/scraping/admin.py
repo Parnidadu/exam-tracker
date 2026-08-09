@@ -1,6 +1,8 @@
 from django.contrib import admin
+from django_celery_beat.models import PeriodicTask
 
 from .models import Snapshot, Source
+from .schedules import schedule_name
 
 
 @admin.register(Source)
@@ -11,11 +13,39 @@ class SourceAdmin(admin.ModelAdmin):
     polling schedule is an admin edit, not a deploy.
     """
 
-    list_display = ("name", "board", "url", "fetch_strategy", "parser_key", "cron", "enabled")
+    list_display = (
+        "name",
+        "board",
+        "url",
+        "fetch_strategy",
+        "parser_key",
+        "cron",
+        "enabled",
+        "schedule_state",
+    )
     list_filter = ("board", "fetch_strategy", "enabled")
     list_editable = ("url", "cron", "enabled")
     search_fields = ("name", "url", "parser_key")
     fields = ("board", "name", "url", "fetch_strategy", "parser_key", "cron", "enabled")
+    readonly_fields = ("schedule_state",)
+
+    @admin.display(description="beat schedule")
+    def schedule_state(self, obj: Source) -> str:
+        """Shows what Beat will actually do with this source.
+
+        Without it, ticking `enabled` gives no feedback at all - the
+        operator has to trust that something happened somewhere else.
+        The schedule is derived from this row (see scraping.schedules), so
+        this is a readout, not a second place to edit it.
+        """
+        task = PeriodicTask.objects.filter(name=schedule_name(obj)).first()
+        if task is None:
+            return "not scheduled"
+        if not task.enabled:
+            return "paused"
+        if task.last_run_at is None:
+            return f"{task.crontab} - not yet run"
+        return f"{task.crontab} - last run {task.last_run_at:%Y-%m-%d %H:%M} UTC"
 
 
 @admin.register(Snapshot)
