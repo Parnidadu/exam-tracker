@@ -27,6 +27,20 @@ from scraping.schedules import (
 
 pytestmark = pytest.mark.django_db
 
+#: Tests that drive a real DatabaseScheduler need a real transactional
+#: database, not pytest-django's default wrapping transaction.
+#:
+#: `schedule_changed()` calls `close_old_connections()` and then commits -
+#: which is correct for a long-lived beat process, and fatal to a test
+#: whose whole body is running inside an atomic block that Postgres then
+#: finds has had its connection closed underneath it. SQLite tolerates
+#: this; Postgres does not, so it only shows up in CI.
+#:
+#: Suppressing the connection handling instead would defeat the point:
+#: these tests exist to prove beat's own change-detection works, and
+#: closing connections is part of it.
+beat_process_db = pytest.mark.django_db(transaction=True)
+
 
 @pytest.fixture
 def board():
@@ -75,6 +89,7 @@ def running_beat():
 # --- the acceptance criterion -----------------------------------------
 
 
+@beat_process_db
 def test_enabling_a_source_schedules_it_without_a_restart(board, running_beat):
     """A beat process that started before the source existed must still
     end up running it."""
@@ -97,6 +112,7 @@ def test_enabling_a_source_schedules_it_without_a_restart(board, running_beat):
     assert schedule_name(source) in running_beat().schedule
 
 
+@beat_process_db
 def test_disabling_a_source_stops_it_without_a_restart(source, running_beat):
     beat = running_beat()
     assert schedule_name(source) in beat.schedule
@@ -108,6 +124,7 @@ def test_disabling_a_source_stops_it_without_a_restart(source, running_beat):
     assert schedule_name(source) not in running_beat().schedule
 
 
+@beat_process_db
 def test_re_enabling_a_source_restores_the_same_schedule(source, running_beat):
     original = source.cron
 
@@ -154,6 +171,7 @@ def test_the_cron_string_maps_onto_the_right_fields(board):
     assert crontab.day_of_week == "0"
 
 
+@beat_process_db
 def test_changing_the_cron_in_admin_reschedules(source, running_beat):
     source.cron = "15 3 * * *"
     source.save()
@@ -175,6 +193,7 @@ def test_a_disabled_source_keeps_its_schedule_row_so_it_can_be_restored(source):
 # --- lifecycle ---------------------------------------------------------
 
 
+@beat_process_db
 def test_deleting_a_source_removes_its_schedule(source, running_beat):
     name = schedule_name(source)
     source.delete()
