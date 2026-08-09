@@ -23,13 +23,30 @@
   --status-neutral: #52514e;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --surface-1: #1a1a19;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    /* The four status steps are mode-invariant: all clear 3:1 on the dark
-       surface, so they carry across unchanged. */
-    --status-neutral: #c3c2b7;
-  }
+/*
+ * Deliberately light-only for now.
+ *
+ * EXT-031 added a prefers-color-scheme:dark block that flipped these ink
+ * tokens, but no component honours it - they use hardcoded Tailwind greys
+ * (text-gray-900 and friends), which are fixed light-mode values. The
+ * result was a half-dark page: Lighthouse measured secondary text at
+ * 1.79:1 against the surface, i.e. unreadable for anyone on a dark OS.
+ *
+ * Shipping one consistent readable theme beats shipping a broken half of
+ * two. A real dark mode means converting every hardcoded colour utility to
+ * these tokens, which is its own piece of work.
+ */
+body {
+  background-color: var(--surface-1);
+  color: var(--text-primary);
+}
+
+/*
+ * A visible focus ring on every interactive element. The default ring is
+ * easy to lose against the surface, and keyboard users have nothing else
+ * to tell them where they are.
+ */
+:focus-visible {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
 }
