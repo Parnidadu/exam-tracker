@@ -29,6 +29,7 @@ INSTALLED_APPS = [
     "simple_history",
     "accounts",
     "exams",
+    "scraping",
     "verification",
 ]
 
