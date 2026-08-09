@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from django.utils import timezone
@@ -34,7 +34,7 @@ def changed_track(exam):
 @pytest.fixture
 def no_update_track(exam):
     return StatusTrack.objects.create(
-        exam_stage=_stage(exam, 2, planned_start_date=date.today() - timedelta(days=3)),
+        exam_stage=_stage(exam, 2, planned_start_date=timezone.now().date() - timedelta(days=3)),
         track=StatusTrack.Track.CONDUCT,
     )
 

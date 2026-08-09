@@ -3,6 +3,7 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics, status
 from rest_framework.response import Response
 
+from config.caching import PublicCacheMixin, bump_public_cache_version
 from exams.models import ExamStage, StatusTrack
 from exams.serializers import StatusTrackSerializer
 
@@ -54,6 +55,12 @@ class VerifyStageView(generics.GenericAPIView):
             status_track.verified_at = record.timestamp
             status_track.save()
 
+            # Only after the write actually commits. Bumping inside the
+            # transaction would retire the cache even on a rollback, and -
+            # worse - a concurrent read could repopulate it from the
+            # pre-commit state and then look fresh for a full TTL.
+            transaction.on_commit(bump_public_cache_version)
+
         return Response(StatusTrackSerializer(status_track).data, status=status.HTTP_201_CREATED)
 
 
@@ -82,7 +89,7 @@ class VerificationQueueView(generics.ListAPIView):
         return queryset
 
 
-class ExamVerificationHistoryView(generics.ListAPIView):
+class ExamVerificationHistoryView(PublicCacheMixin, generics.ListAPIView):
     """GET /api/exams/<slug>/verifications/ - every verification recorded
     against an exam's stages, newest first.
 

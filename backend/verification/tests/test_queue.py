@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 from django.utils import timezone
@@ -56,7 +56,7 @@ def test_queue_excludes_machine_value_that_merely_reconfirms_human_value(exam):
 
 @pytest.mark.django_db
 def test_queue_includes_date_elapsed_no_update_item_for_conduct_track(exam):
-    stage = _stage(exam, 1, planned_start_date=date.today() - timedelta(days=3))
+    stage = _stage(exam, 1, planned_start_date=timezone.now().date() - timedelta(days=3))
     track = StatusTrack.objects.create(exam_stage=stage, track=StatusTrack.Track.CONDUCT)
 
     items = list(verification_queue())
@@ -67,7 +67,7 @@ def test_queue_includes_date_elapsed_no_update_item_for_conduct_track(exam):
 
 @pytest.mark.django_db
 def test_queue_excludes_date_elapsed_no_update_for_non_conduct_track(exam):
-    stage = _stage(exam, 1, planned_start_date=date.today() - timedelta(days=3))
+    stage = _stage(exam, 1, planned_start_date=timezone.now().date() - timedelta(days=3))
     track = StatusTrack.objects.create(exam_stage=stage, track=StatusTrack.Track.RESULT)
 
     assert track not in list(verification_queue())
@@ -75,7 +75,7 @@ def test_queue_excludes_date_elapsed_no_update_for_non_conduct_track(exam):
 
 @pytest.mark.django_db
 def test_queue_excludes_conduct_track_with_future_planned_date(exam):
-    stage = _stage(exam, 1, planned_start_date=date.today() + timedelta(days=3))
+    stage = _stage(exam, 1, planned_start_date=timezone.now().date() + timedelta(days=3))
     track = StatusTrack.objects.create(exam_stage=stage, track=StatusTrack.Track.CONDUCT)
 
     assert track not in list(verification_queue())
@@ -141,7 +141,7 @@ def test_queue_orders_by_priority_regardless_of_insertion_order(exam):
         verified_at=timezone.now() - StatusTrack.STALENESS_WINDOW - timedelta(days=1),
     )
 
-    no_update_stage = _stage(exam, 2, planned_start_date=date.today() - timedelta(days=1))
+    no_update_stage = _stage(exam, 2, planned_start_date=timezone.now().date() - timedelta(days=1))
     no_update = StatusTrack.objects.create(
         exam_stage=no_update_stage, track=StatusTrack.Track.CONDUCT
     )

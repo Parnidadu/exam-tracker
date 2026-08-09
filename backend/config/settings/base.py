@@ -96,6 +96,25 @@ STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+CACHES = {
+    "default": {
+        # Redis is already provisioned in docker-compose (EXT-002). Falls back
+        # to a local-memory cache when REDIS_URL is unset, so the test suite and
+        # a bare `manage.py runserver` work without a running Redis.
+        "BACKEND": (
+            "django.core.cache.backends.redis.RedisCache"
+            if os.environ.get("REDIS_URL")
+            else "django.core.cache.backends.locmem.LocMemCache"
+        ),
+        "LOCATION": os.environ.get("REDIS_URL", "exam-tracker-locmem"),
+    }
+}
+
+#: How long a cached public read may be served. Short on purpose: a
+#: verification write busts the cache immediately, so this only bounds
+#: staleness from writes that do not (scraper runs, admin edits).
+PUBLIC_CACHE_TTL = int(os.environ.get("PUBLIC_CACHE_TTL", "60"))
+
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,

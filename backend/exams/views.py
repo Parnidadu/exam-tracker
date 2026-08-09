@@ -7,6 +7,8 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics
 from rest_framework.exceptions import ParseError
 
+from config.caching import PublicCacheMixin
+
 from .models import Board, Exam, ExamStage, StatusTrack
 from .serializers import (
     BoardSummarySerializer,
@@ -77,7 +79,7 @@ def _parse_date(value: str, param_name: str) -> date:
         ),
     ]
 )
-class ExamListView(generics.ListAPIView):
+class ExamListView(PublicCacheMixin, generics.ListAPIView):
     """GET /api/exams/ - paginated, filterable by board, status, and date range."""
 
     serializer_class = ExamSerializer
@@ -153,7 +155,7 @@ class ExamListView(generics.ListAPIView):
         return queryset.filter(pk__in=matching_ids)
 
 
-class ExamDetailView(generics.RetrieveAPIView):
+class ExamDetailView(PublicCacheMixin, generics.RetrieveAPIView):
     """GET /api/exams/<slug>/ - exam with all stages and each stage's three
     status tracks, in a small constant number of queries (no N+1: one for
     the exam, one for its stages, one for all of those stages' status
@@ -171,7 +173,7 @@ class ExamDetailView(generics.RetrieveAPIView):
     )
 
 
-class BoardListView(generics.ListAPIView):
+class BoardListView(PublicCacheMixin, generics.ListAPIView):
     """GET /api/boards/ - active boards, for populating the public list's
     board filter. Without this the UI could only offer boards that happen
     to appear on the current page of results."""
@@ -191,7 +193,7 @@ class BoardListView(generics.ListAPIView):
     ],
     responses=CalendarEntrySerializer(many=True),
 )
-class CalendarView(generics.ListAPIView):
+class CalendarView(PublicCacheMixin, generics.ListAPIView):
     """GET /api/calendar/?month=YYYY-MM - every stage milestone falling in
     that month, one entry per (stage, milestone).
 

@@ -1,6 +1,7 @@
 from datetime import date
 
 import pytest
+from django.utils import timezone
 
 from exams.models import Exam, ExamStage
 
@@ -106,7 +107,7 @@ def test_rejects_a_malformed_month(client):
 
 @pytest.mark.django_db
 def test_defaults_to_the_current_month(client, exam):
-    today = date.today()
+    today = timezone.now().date()
     _stage(exam, exam_date=today)
 
     entries = client.get(URL).json()
