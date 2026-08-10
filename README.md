@@ -53,6 +53,13 @@ make deploy-staging
 make deploy ENV=prod
 ```
 
+## Performance
+
+The public dashboard was load-tested against the production
+configuration: p95 **411ms at 100 concurrent requests**, saturating at
+~287 req/s with three gunicorn workers. Method, full results and caveats
+in [docs/load-test.md](docs/load-test.md).
+
 ## Backups
 
 A nightly `pg_dump` runs from Celery Beat into a Docker volume, with a
