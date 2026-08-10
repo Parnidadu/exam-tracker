@@ -1,11 +1,14 @@
 import type {
   Board,
   CalendarEntry,
+  Discrepancy,
   ExamDetail,
   ExamFilters,
   ExamSummary,
+  OpenDiscrepancyPayload,
   Paginated,
   QueueItem,
+  TransitionPayload,
   VerificationRecord,
   VerifyPayload,
 } from './types'
@@ -90,4 +93,43 @@ export function verifyStage(stageId: number, payload: VerifyPayload): Promise<un
 
 export function fetchCalendar(month: string): Promise<CalendarEntry[]> {
   return request<CalendarEntry[]>(`/api/calendar/?month=${encodeURIComponent(month)}`)
+}
+
+export function fetchDiscrepancies(
+  params: { open?: boolean; status?: string } = {},
+): Promise<Paginated<Discrepancy>> {
+  const query = new URLSearchParams()
+  if (params.open) query.set('open', 'true')
+  if (params.status) query.set('status', params.status)
+  const suffix = query.toString()
+  return request<Paginated<Discrepancy>>(
+    `/api/discrepancies/${suffix ? `?${suffix}` : ''}`,
+  )
+}
+
+export function openDiscrepancy(payload: OpenDiscrepancyPayload): Promise<Discrepancy> {
+  return request<Discrepancy>('/api/discrepancies/', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateDiscrepancy(
+  id: number,
+  payload: Partial<OpenDiscrepancyPayload>,
+): Promise<Discrepancy> {
+  return request<Discrepancy>(`/api/discrepancies/${id}/`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  })
+}
+
+export function transitionDiscrepancy(
+  id: number,
+  payload: TransitionPayload,
+): Promise<Discrepancy> {
+  return request<Discrepancy>(`/api/discrepancies/${id}/transition/`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
 }

@@ -80,6 +80,8 @@ function mockApi() {
             ? DETAIL
             : url.startsWith('/api/calendar/')
               ? []
+              : url.startsWith('/api/discrepancies/')
+                ? { count: 0, next: null, previous: null, results: [] }
               : { count: 1, next: null, previous: null, results: [EXAM] }
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(json) })
     }),
@@ -113,6 +115,14 @@ describe('accessibility', () => {
   it('the calendar page has no automatically detectable violations', async () => {
     const { container } = renderApp('/calendar?month=2026-06')
     await screen.findByRole('grid')
+    expect(violationIds(await axe(container))).toEqual([])
+  })
+
+  it('the discrepancy console has no automatically detectable violations', async () => {
+    // Staff-facing, but a verifier using a screen reader is as real as a
+    // candidate using one - and this screen is nothing but form controls.
+    const { container } = renderApp('/discrepancies')
+    await screen.findByRole('heading', { name: 'Discrepancies' })
     expect(violationIds(await axe(container))).toEqual([])
   })
 })

@@ -1,18 +1,23 @@
 from calendar import monthrange
 from datetime import date
 
+from django.db import transaction
 from django.db.models import Prefetch, Q, QuerySet
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import generics
 from rest_framework.exceptions import ParseError
+from rest_framework.response import Response
 
+from accounts.permissions import IsVerifierOrAdmin
 from config.caching import PublicCacheMixin
 
-from .models import Board, Exam, ExamStage, StatusTrack
+from .models import Board, Discrepancy, Exam, ExamStage, StatusTrack
 from .serializers import (
     BoardSummarySerializer,
     CalendarEntrySerializer,
+    DiscrepancySerializer,
+    DiscrepancyTransitionSerializer,
     ExamDetailSerializer,
     ExamSerializer,
 )
@@ -257,3 +262,97 @@ class CalendarView(PublicCacheMixin, generics.ListAPIView):
         first = date(year, month, 1)
         last = date(year, month, monthrange(year, month)[1])
         return first, last
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter(name="status", enum=Discrepancy.Status.values),
+        OpenApiParameter(name="discrepancy_type", enum=Discrepancy.Type.values),
+        OpenApiParameter(name="exam", description="Exam slug."),
+        OpenApiParameter(name="open", description="true for anything not yet closed."),
+    ]
+)
+class DiscrepancyListCreateView(generics.ListCreateAPIView):
+    """GET/POST /api/discrepancies/ - the verifier's working list, and the
+    way one is opened.
+
+    Not public. A discrepancy starts as `reported` - an unchecked claim
+    that names a real board and a real exam - and publishing those would
+    make this a rumour mill. EXT-055 decides what the public feed shows.
+    """
+
+    serializer_class = DiscrepancySerializer
+    permission_classes = [IsVerifierOrAdmin]
+
+    def get_queryset(self) -> QuerySet[Discrepancy]:
+        queryset = Discrepancy.objects.select_related(
+            "exam_stage",
+            "exam_stage__exam",
+            "exam_stage__exam__board",
+            "reported_by",
+            "resolved_by",
+        )
+        params = self.request.query_params
+
+        if status_value := params.get("status"):
+            queryset = queryset.filter(status=status_value)
+        if type_value := params.get("discrepancy_type"):
+            queryset = queryset.filter(discrepancy_type=type_value)
+        if exam_slug := params.get("exam"):
+            queryset = queryset.filter(exam_stage__exam__slug=exam_slug)
+        if params.get("open") == "true":
+            queryset = queryset.exclude(status__in=Discrepancy.TERMINAL)
+
+        return queryset
+
+    def perform_create(self, serializer) -> None:
+        # Taken from the session, never from the payload: who filed a
+        # claim like this is not something the client gets to assert.
+        serializer.save(reported_by=self.request.user)
+
+
+class DiscrepancyDetailView(generics.RetrieveUpdateAPIView):
+    """GET/PATCH /api/discrepancies/<id>/ - read one, or correct its
+    details. `status` is read-only here; moving the lifecycle is its own
+    endpoint below."""
+
+    serializer_class = DiscrepancySerializer
+    permission_classes = [IsVerifierOrAdmin]
+    queryset = Discrepancy.objects.select_related(
+        "exam_stage", "exam_stage__exam", "exam_stage__exam__board", "reported_by", "resolved_by"
+    )
+
+
+@extend_schema(request=DiscrepancyTransitionSerializer, responses=DiscrepancySerializer)
+class DiscrepancyTransitionView(generics.GenericAPIView):
+    """POST /api/discrepancies/<id>/transition/ - confirm, resolve or
+    dismiss.
+
+    An illegal move is refused as a 400 with the moves that would have
+    worked, rather than as the model's exception surfacing to the client
+    as a 500. The model guard stays regardless: it is what makes the rule
+    true for a management command as well as for this view.
+    """
+
+    serializer_class = DiscrepancyTransitionSerializer
+    permission_classes = [IsVerifierOrAdmin]
+    queryset = Discrepancy.objects.select_related("exam_stage")
+
+    def post(self, request, *args, **kwargs):
+        discrepancy = self.get_object()
+        serializer = self.get_serializer(
+            data=request.data, context={**self.get_serializer_context(), "discrepancy": discrepancy}
+        )
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        with transaction.atomic():
+            discrepancy.status = data["status"]
+            if data.get("evidence_url"):
+                discrepancy.evidence_url = data["evidence_url"]
+            if data["status"] in Discrepancy.TERMINAL:
+                discrepancy.resolution_note = data["resolution_note"]
+                discrepancy.resolved_by = request.user
+            discrepancy.save()
+
+        return Response(DiscrepancySerializer(discrepancy).data)

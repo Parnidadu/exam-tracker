@@ -166,3 +166,87 @@ export interface CalendarEntry {
   board_code: string
   stage_type: string
 }
+
+/** Mirrors the backend's Discrepancy.Type (EXT-053). */
+export type DiscrepancyType =
+  | 'postponement'
+  | 'cancellation'
+  | 'paper_leak'
+  | 'key_error'
+  | 're_exam'
+  | 'court_stay'
+  | 'other'
+
+export type DiscrepancySeverity = 'low' | 'medium' | 'high' | 'critical'
+
+export type DiscrepancyStatus = 'reported' | 'confirmed' | 'resolved' | 'dismissed'
+
+export const DISCREPANCY_TYPE_LABELS: Record<DiscrepancyType, string> = {
+  postponement: 'Postponement',
+  cancellation: 'Cancellation',
+  paper_leak: 'Paper leak',
+  key_error: 'Answer key error',
+  re_exam: 'Re-examination',
+  court_stay: 'Court stay',
+  other: 'Other',
+}
+
+export const DISCREPANCY_SEVERITIES: readonly DiscrepancySeverity[] = [
+  'low',
+  'medium',
+  'high',
+  'critical',
+]
+
+export const DISCREPANCY_STATUS_LABELS: Record<DiscrepancyStatus, string> = {
+  reported: 'Reported',
+  confirmed: 'Confirmed',
+  resolved: 'Resolved',
+  dismissed: 'Dismissed',
+}
+
+/** Mirrors DiscrepancySerializer. */
+export interface Discrepancy {
+  id: number
+  exam_stage: number
+  exam_slug: string
+  exam_name: string
+  board_code: string
+  stage_type: string
+  discrepancy_type: DiscrepancyType
+  severity: DiscrepancySeverity
+  status: DiscrepancyStatus
+  description: string
+  evidence_url: string
+  evidence_note: string
+  occurred_on: string | null
+  reported_by: string | null
+  reported_at: string
+  resolved_by: string | null
+  resolved_at: string | null
+  resolution_note: string
+  is_open: boolean
+  /**
+   * What this may become next, straight from the server's transition
+   * table - so the console offers exactly the moves that will succeed
+   * rather than offering all of them and reporting a failure afterwards.
+   */
+  available_transitions: DiscrepancyStatus[]
+}
+
+export interface OpenDiscrepancyPayload {
+  exam_stage: number
+  discrepancy_type: DiscrepancyType
+  severity: DiscrepancySeverity
+  description: string
+  /** Required by the API, and by the form before it ever gets there. */
+  evidence_url: string
+  evidence_note?: string
+  occurred_on?: string | null
+}
+
+export interface TransitionPayload {
+  status: DiscrepancyStatus
+  resolution_note?: string
+  evidence_url?: string
+}

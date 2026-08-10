@@ -387,7 +387,10 @@ class Discrepancy(models.Model):
                 Discrepancy.objects.filter(pk=self.pk).values_list("status", flat=True).first()
             )
             if previous is not None and previous != self.status:
-                allowed = sorted(self.TRANSITIONS.get(previous, set()))
+                # .value, not the member: interpolating the enum renders
+                # "Discrepancy.Status.CONFIRMED" into a message whose whole
+                # job is to tell someone what to send instead.
+                allowed = sorted(str(s) for s in self.TRANSITIONS.get(previous, set()))
                 if self.status not in self.TRANSITIONS.get(previous, set()):
                     raise InvalidDiscrepancyTransition(
                         f"A {previous} discrepancy cannot become {self.status}. "
