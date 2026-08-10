@@ -184,3 +184,56 @@ def test_deleting_a_source_removes_its_snapshots(source):
     source.delete()
 
     assert Snapshot.objects.count() == 0
+
+
+# --- EXT-051: real boards serve bytes Postgres will not store ---------
+
+
+def _bytes_result(source, body: bytes) -> FetchResult:
+    return FetchResult(url=source.url, status_code=200, content=body, headers={})
+
+
+@pytest.mark.django_db
+def test_a_body_containing_nul_bytes_is_stored_rather_than_exploding(source):
+    """The captured UPSC page really does contain NUL bytes. Postgres
+    rejects them in a text column, so storing the body verbatim made that
+    board fail on every poll - permanently, since an unexpected error is
+    recorded as a failure and re-raised."""
+    body = b"<html><body>before\x00after</body></html>"
+
+    result = store_snapshot(source, _bytes_result(source, body))
+
+    assert result.changed
+    assert "\x00" not in result.snapshot.content
+    assert "before" in result.snapshot.content and "after" in result.snapshot.content
+
+
+@pytest.mark.django_db
+def test_the_hash_still_sees_a_difference_the_column_cannot_hold(source):
+    """Change detection stays faithful to what was served: two bodies
+    differing only in NULs are different pages, even though the stored
+    text is identical."""
+    plain = b"<html>x</html>"
+    with_nul = b"<html>x\x00</html>"
+
+    first = store_snapshot(source, _bytes_result(source, plain))
+    second = store_snapshot(source, _bytes_result(source, with_nul))
+
+    assert second.changed
+    assert first.snapshot.content_hash != second.snapshot.content_hash
+
+
+@pytest.mark.django_db
+def test_the_real_captured_page_can_be_stored(source):
+    """Guards the actual regression rather than a synthetic version of
+    it: this is the page a live board serves."""
+    from pathlib import Path
+
+    body = (
+        Path(__file__).parent / "fixtures" / "upsc_whats_new.html"
+    ).read_bytes()
+    assert b"\x00" in body, "fixture should still be the unmodified capture"
+
+    result = store_snapshot(source, _bytes_result(source, body))
+
+    assert result.snapshot.pk

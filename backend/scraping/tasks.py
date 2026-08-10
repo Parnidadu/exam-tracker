@@ -1,9 +1,12 @@
 """Celery tasks for scraping.
 
-Scope note: this task fetches a source and stores the snapshot. It
-deliberately stops there. Turning a changed snapshot into observations,
-matching them to an ExamStage and queueing the unmatched ones is EXT-050
-and EXT-051; wiring it in here would pull that work forward.
+The pipeline, end to end: fetch a source, store the snapshot, and - only
+when the body actually changed - parse it, match each observation to an
+ExamStage and either write it or queue it for a human.
+
+The short-circuit on an unchanged body is the point of EXT-042: most
+polls find nothing new, and re-parsing an identical page would re-run the
+matcher over observations already dealt with.
 """
 
 from __future__ import annotations
@@ -14,8 +17,11 @@ from celery import shared_task
 
 from .fetch import FetchError
 from .health import record_failure, record_success, touch
+from .matching import link_observation
 from .models import Source
-from .snapshots import fetch_and_store
+from .parsers import ParserNotFound, get_parser
+from .snapshots import SnapshotResult, fetch_and_store
+from .triage import queue_observation
 
 logger = logging.getLogger(__name__)
 
@@ -76,10 +82,67 @@ def scrape_source(source_id: int) -> dict[str, object]:
         result.snapshot.content_hash[:12],
         result.changed,
     )
+    reconciled = _reconcile(source, result)
     return {
         "source_id": source_id,
         "status": "ok",
         "changed": result.changed,
         "should_parse": result.should_parse,
         "content_hash": result.snapshot.content_hash,
+        **reconciled,
+    }
+
+
+def _reconcile(source: Source, result: SnapshotResult) -> dict[str, object]:
+    """Parse a changed page and route each observation.
+
+    Every failure here is contained. A broken parser, a board that
+    redesigned its markup, or a `parser_key` that names nothing must not
+    turn a successful fetch into a failed run - the snapshot is already
+    stored, and losing it would mean losing the evidence of what the board
+    actually served.
+    """
+    if not result.should_parse:
+        return {"parsed": False}
+
+    try:
+        parser = get_parser(source.parser_key)
+    except ParserNotFound:
+        # Source.parser_key is free text by design (EXT-040), so this is a
+        # configuration mistake rather than a bug, and it is fixed in
+        # admin without a deploy.
+        logger.warning(
+            "scrape_source: %s names parser %r, which is not registered",
+            source,
+            source.parser_key,
+        )
+        return {"parsed": False, "parser_missing": source.parser_key}
+
+    try:
+        observations = parser.parse(result.snapshot.content)
+    except Exception:
+        logger.exception("scrape_source: parser %r failed on %s", source.parser_key, source)
+        return {"parsed": False, "parser_failed": source.parser_key}
+
+    linked = queued = 0
+    for observation in observations:
+        match, _applied = link_observation(observation, board=source.board)
+        if match.matched:
+            linked += 1
+        else:
+            queue_observation(observation, match, source=source)
+            queued += 1
+
+    logger.info(
+        "scrape_source: %s produced %s observations - %s linked, %s queued for triage",
+        source,
+        len(observations),
+        linked,
+        queued,
+    )
+    return {
+        "parsed": True,
+        "observations": len(observations),
+        "linked": linked,
+        "queued_for_triage": queued,
     }

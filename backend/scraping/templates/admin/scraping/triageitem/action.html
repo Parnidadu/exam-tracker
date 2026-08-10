@@ -1,0 +1,43 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <div id="content-main">
+    <fieldset class="module aligned">
+      <h2>What was observed</h2>
+      <div class="form-row"><label>Exam name:</label> {{ item.exam_name }}</div>
+      <div class="form-row"><label>Track / value:</label> {{ item.track }} = {{ item.value }}</div>
+      {% if item.stage_hint %}
+        <div class="form-row"><label>Stage wording:</label> {{ item.stage_hint }}</div>
+      {% endif %}
+      {% if item.observed_date %}
+        <div class="form-row"><label>Date on the page:</label> {{ item.observed_date }}</div>
+      {% endif %}
+      <div class="form-row">
+        <label>Why it is here:</label>
+        {{ item.get_reason_display }} (best score {{ item.match_confidence }})
+      </div>
+      <div class="form-row"><label>Seen:</label> {{ item.times_seen }} time{{ item.times_seen|pluralize }}</div>
+      {% if item.source_url %}
+        <div class="form-row">
+          <label>Evidence:</label>
+          <a href="{{ item.source_url }}" target="_blank" rel="noopener">{{ item.source_url }}</a>
+        </div>
+      {% endif %}
+      {% if item.raw_text %}
+        <div class="form-row"><label>Text read:</label> <em>{{ item.raw_text }}</em></div>
+      {% endif %}
+    </fieldset>
+
+    <form method="post">
+      {% csrf_token %}
+      <fieldset class="module aligned">
+        <h2>{{ title }}</h2>
+        {{ form.as_p }}
+      </fieldset>
+      <div class="submit-row">
+        <input type="submit" value="Confirm" class="default">
+        <a href="{% url 'admin:scraping_triageitem_changelist' %}" class="closelink">Cancel</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

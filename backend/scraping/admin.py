@@ -1,10 +1,22 @@
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
+from django.shortcuts import redirect, render
+from django.urls import path, reverse
 from django.utils.html import format_html
 from django_celery_beat.models import PeriodicTask
 
+from exams.models import Board, ExamStage
+
 from .health import is_stale, missed_runs
-from .models import Snapshot, Source, SourceHealth
+from .models import Snapshot, Source, SourceHealth, TriageItem
 from .schedules import schedule_name
+from .triage import (
+    AlreadyResolved,
+    create_exam_and_link,
+    dismiss,
+    link_to_stage,
+    suggested_stages,
+)
 
 
 @admin.register(Source)
@@ -177,6 +189,241 @@ class SourceHealthAdmin(admin.ModelAdmin):
         if not obj.last_error:
             return "-"
         return obj.last_error if len(obj.last_error) <= 80 else obj.last_error[:77] + "..."
+
+
+class LinkToStageForm(forms.Form):
+    """Offers the matcher's own shortlist first, then anything else.
+
+    A plain stage dropdown across every exam is unusable once there are a
+    few hundred stages, and the shortlist is exactly what the matcher
+    already thought plausible.
+    """
+
+    exam_stage = forms.ModelChoiceField(queryset=ExamStage.objects.none(), label="Link to stage")
+    note = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(self, *args, item: TriageItem, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Narrowed rather than indexed straight off self.fields, whose
+        # value type is the base Field - only ModelChoiceField has a
+        # queryset, and mypy is right to say so.
+        field: forms.ModelChoiceField = self.fields["exam_stage"]  # type: ignore[assignment]
+        field.queryset = ExamStage.objects.select_related("exam", "exam__board").order_by(
+            "exam__cycle_year", "exam__code", "sequence"
+        )
+        suggestions = suggested_stages(item)
+        if suggestions:
+            field.initial = suggestions[0].pk
+            field.help_text = "The matcher suggested: " + ", ".join(
+                str(stage) for stage in suggestions
+            )
+
+
+class CreateExamForm(forms.Form):
+    board = forms.ModelChoiceField(queryset=Board.objects.all())
+    code = forms.CharField(max_length=50)
+    name = forms.CharField(max_length=255)
+    cycle_year = forms.IntegerField(min_value=1990, max_value=2100)
+    stage_type = forms.ChoiceField(
+        choices=ExamStage.StageType.choices,
+        initial=ExamStage.StageType.SINGLE,
+        help_text=(
+            "One stage is created. Which stages this exam really has is "
+            "a domain fact - add the rest on the exam itself."
+        ),
+    )
+    note = forms.CharField(required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+
+class DismissForm(forms.Form):
+    note = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 2}),
+        help_text=(
+            "Why this is not about a tracked exam. Worth recording - the "
+            "same notice will keep arriving."
+        ),
+    )
+
+
+@admin.register(TriageItem)
+class TriageItemAdmin(admin.ModelAdmin):
+    """The triage queue.
+
+    Read-only as a form: an operator resolves an item through one of the
+    three actions, not by editing its fields. Letting someone retype
+    `exam_name` would quietly change the fingerprint and split one
+    recurring problem into two queue items.
+    """
+
+    list_display = (
+        "exam_name",
+        "board",
+        "track",
+        "value",
+        "reason",
+        "match_confidence",
+        "times_seen",
+        "status",
+        "actions_column",
+    )
+    list_filter = ("status", "reason", "track", "source__board")
+    search_fields = ("exam_name", "raw_text", "source_url")
+    readonly_fields = tuple(
+        field.name for field in TriageItem._meta.fields if field.name != "id"
+    ) + ("evidence",)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("source", "source__board", "exam_stage")
+
+    def has_add_permission(self, request) -> bool:
+        return False
+
+    def has_change_permission(self, request, obj=None) -> bool:
+        return False
+
+    @admin.display(description="board", ordering="source__board__name")
+    def board(self, obj: TriageItem) -> str:
+        return obj.source.board.code if obj.source else "-"
+
+    @admin.display(description="evidence")
+    def evidence(self, obj: TriageItem) -> str:
+        if not obj.source_url:
+            return obj.raw_text or "-"
+        return format_html(
+            '<a href="{}" target="_blank" rel="noopener">{}</a><br><br>{}',
+            obj.source_url,
+            obj.source_url,
+            obj.raw_text,
+        )
+
+    @admin.display(description="triage")
+    def actions_column(self, obj: TriageItem) -> str:
+        if obj.is_resolved:
+            return format_html(
+                "{} by {}", obj.get_status_display(), obj.resolved_by or "-"
+            )
+        return format_html(
+            '<a class="button" href="{}">Link</a> '
+            '<a class="button" href="{}">Create exam</a> '
+            '<a class="button" href="{}">Dismiss</a>',
+            reverse("admin:scraping_triageitem_link", args=[obj.pk]),
+            reverse("admin:scraping_triageitem_create", args=[obj.pk]),
+            reverse("admin:scraping_triageitem_dismiss", args=[obj.pk]),
+        )
+
+    def get_urls(self):
+        return [
+            path(
+                "<int:pk>/link/",
+                self.admin_site.admin_view(self.link_view),
+                name="scraping_triageitem_link",
+            ),
+            path(
+                "<int:pk>/create-exam/",
+                self.admin_site.admin_view(self.create_view),
+                name="scraping_triageitem_create",
+            ),
+            path(
+                "<int:pk>/dismiss/",
+                self.admin_site.admin_view(self.dismiss_view),
+                name="scraping_triageitem_dismiss",
+            ),
+        ] + super().get_urls()
+
+    # --- the three actions ---------------------------------------------
+
+    def _render(self, request, item, form, title):
+        return render(
+            request,
+            "admin/scraping/triageitem/action.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": title,
+                "item": item,
+                "form": form,
+                "opts": self.model._meta,
+            },
+        )
+
+    def _actor(self, request) -> str:
+        return request.user.get_username()
+
+    def link_view(self, request, pk):
+        item = self.get_object(request, pk)
+        form = LinkToStageForm(request.POST or None, item=item)
+        if request.method == "POST" and form.is_valid():
+            try:
+                resolved, applied = link_to_stage(
+                    item,
+                    form.cleaned_data["exam_stage"],
+                    actor=self._actor(request),
+                    note=form.cleaned_data["note"],
+                )
+            except AlreadyResolved as exc:
+                self.message_user(request, str(exc), messages.WARNING)
+            else:
+                if applied.conflict is not None:
+                    # Linking succeeded; writing the value did not. Saying
+                    # only "linked" would leave the operator believing the
+                    # status had been updated when it deliberately was not.
+                    self.message_user(
+                        request,
+                        f"Linked to {resolved.exam_stage}, but the value was not written: "
+                        "a recent human verification says otherwise. A conflict has been "
+                        "recorded for review.",
+                        messages.WARNING,
+                    )
+                else:
+                    self.message_user(request, f"Linked to {resolved.exam_stage}.")
+            return redirect("admin:scraping_triageitem_changelist")
+        return self._render(request, item, form, "Link observation to a stage")
+
+    def create_view(self, request, pk):
+        item = self.get_object(request, pk)
+        initial = {"name": item.exam_name[:255], "cycle_year": _guess_year(item.exam_name)}
+        if item.source is not None:
+            initial["board"] = item.source.board_id
+        form = CreateExamForm(request.POST or None, initial=initial)
+        if request.method == "POST" and form.is_valid():
+            try:
+                resolved, stage, _ = create_exam_and_link(
+                    item,
+                    board=form.cleaned_data["board"],
+                    code=form.cleaned_data["code"],
+                    name=form.cleaned_data["name"],
+                    cycle_year=form.cleaned_data["cycle_year"],
+                    stage_type=form.cleaned_data["stage_type"],
+                    actor=self._actor(request),
+                    note=form.cleaned_data["note"],
+                )
+            except AlreadyResolved as exc:
+                self.message_user(request, str(exc), messages.WARNING)
+            else:
+                self.message_user(request, f"Created {stage.exam} and linked to {stage}.")
+            return redirect("admin:scraping_triageitem_changelist")
+        return self._render(request, item, form, "Create a new exam from this observation")
+
+    def dismiss_view(self, request, pk):
+        item = self.get_object(request, pk)
+        form = DismissForm(request.POST or None)
+        if request.method == "POST" and form.is_valid():
+            try:
+                dismiss(item, actor=self._actor(request), note=form.cleaned_data["note"])
+            except AlreadyResolved as exc:
+                self.message_user(request, str(exc), messages.WARNING)
+            else:
+                self.message_user(request, "Dismissed.")
+            return redirect("admin:scraping_triageitem_changelist")
+        return self._render(request, item, form, "Dismiss this observation")
+
+
+def _guess_year(text: str) -> int | None:
+    """Prefill only. The operator confirms it, so a wrong guess costs a
+    keystroke rather than creating an exam under the wrong cycle."""
+    from .matching import _year_in
+
+    return _year_in(text)
 
 
 @admin.register(Snapshot)
