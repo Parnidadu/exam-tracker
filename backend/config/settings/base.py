@@ -195,6 +195,15 @@ CELERY_BEAT_SCHEDULE = {
             minute=int(os.environ.get("VERIFICATION_DIGEST_MINUTE", "0") or 0),
         ),
     },
+    # Runs before the digest, so a date that passed unremarked is already
+    # recorded by the time the day's queue summary goes out.
+    "elapsed-date-alerts": {
+        "task": "verification.tasks.send_elapsed_date_alerts",
+        "schedule": crontab(
+            hour=int(os.environ.get("ELAPSED_DATE_ALERT_HOUR", "6") or 6),
+            minute=int(os.environ.get("ELAPSED_DATE_ALERT_MINUTE", "30") or 30),
+        ),
+    },
 }
 
 CELERY_TIMEZONE = TIME_ZONE
