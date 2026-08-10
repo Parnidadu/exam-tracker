@@ -82,6 +82,30 @@ function mockApi() {
               ? []
               : url.startsWith('/api/discrepancies/')
                 ? { count: 0, next: null, previous: null, results: [] }
+                : url.startsWith('/api/discrepancy-feed/')
+                  ? {
+                      count: 1,
+                      next: null,
+                      previous: null,
+                      results: [
+                        {
+                          id: 1,
+                          exam_slug: 'exam-1',
+                          exam_name: 'Civil Services Examination',
+                          board_code: 'UPSC',
+                          stage_type: 'prelims',
+                          discrepancy_type: 'postponement',
+                          type_label: 'Postponement',
+                          severity: 'medium',
+                          status: 'confirmed',
+                          description: 'Postponed by two weeks.',
+                          evidence_url: 'https://www.upsc.gov.in/notice',
+                          occurred_on: '2026-01-15',
+                          resolution_note: '',
+                          resolved_at: null,
+                        },
+                      ],
+                    }
               : { count: 1, next: null, previous: null, results: [EXAM] }
       return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(json) })
     }),

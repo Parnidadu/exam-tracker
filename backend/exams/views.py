@@ -10,7 +10,7 @@ from rest_framework.exceptions import ParseError
 from rest_framework.response import Response
 
 from accounts.permissions import IsVerifierOrAdmin
-from config.caching import PublicCacheMixin
+from config.caching import PublicCacheMixin, bump_public_cache_version
 
 from .models import Board, Discrepancy, Exam, ExamStage, StatusTrack
 from .serializers import (
@@ -20,6 +20,7 @@ from .serializers import (
     DiscrepancyTransitionSerializer,
     ExamDetailSerializer,
     ExamSerializer,
+    PublicDiscrepancySerializer,
 )
 
 
@@ -322,6 +323,15 @@ class DiscrepancyDetailView(generics.RetrieveUpdateAPIView):
         "exam_stage", "exam_stage__exam", "exam_stage__exam__board", "reported_by", "resolved_by"
     )
 
+    def perform_update(self, serializer) -> None:
+        serializer.save()
+        # Only when the row is actually on the public feed (EXT-055).
+        # Editing a still-unchecked claim changes nothing a visitor can
+        # see, and retiring every cached public response for it would be
+        # churn with no reader.
+        if serializer.instance.status in Discrepancy.PUBLIC:
+            transaction.on_commit(bump_public_cache_version)
+
 
 @extend_schema(request=DiscrepancyTransitionSerializer, responses=DiscrepancySerializer)
 class DiscrepancyTransitionView(generics.GenericAPIView):
@@ -355,4 +365,53 @@ class DiscrepancyTransitionView(generics.GenericAPIView):
                 discrepancy.resolved_by = request.user
             discrepancy.save()
 
+            # A transition is exactly the moment the public feed changes:
+            # confirming puts a discrepancy on it, dismissing keeps one
+            # off, resolving changes what it says. Without this a
+            # confirmed postponement stays invisible for a full cache TTL,
+            # which for a candidate checking whether their exam moved is
+            # the one moment the delay matters.
+            transaction.on_commit(bump_public_cache_version)
+
         return Response(DiscrepancySerializer(discrepancy).data)
+
+
+@extend_schema(
+    parameters=[
+        OpenApiParameter(name="exam", description="Restrict to one exam, by slug."),
+        OpenApiParameter(
+            name="discrepancy_type", enum=Discrepancy.Type.values, description="Filter by type."
+        ),
+    ]
+)
+class PublicDiscrepancyFeedView(PublicCacheMixin, generics.ListAPIView):
+    """GET /api/discrepancy-feed/ - discrepancies a candidate may see.
+
+    Only confirmed and resolved ones, per Discrepancy.PUBLIC. A `reported`
+    discrepancy is an unchecked claim, and a `dismissed` one is a claim
+    that was checked and found untrue - publishing either would make this
+    feed the rumour mill the app exists to replace.
+
+    The filter is applied here, not left to a query parameter: a caller
+    must not be able to ask for drafts, and there is no `status` filter on
+    this endpoint for the same reason.
+    """
+
+    serializer_class = PublicDiscrepancySerializer
+
+    def get_queryset(self) -> QuerySet[Discrepancy]:
+        queryset = Discrepancy.objects.filter(status__in=Discrepancy.PUBLIC).select_related(
+            "exam_stage",
+            "exam_stage__exam",
+            "exam_stage__exam__board",
+        )
+
+        params = self.request.query_params
+        if exam_slug := params.get("exam"):
+            queryset = queryset.filter(exam_stage__exam__slug=exam_slug)
+        if type_value := params.get("discrepancy_type"):
+            queryset = queryset.filter(discrepancy_type=type_value)
+
+        # Newest first: a feed is read from the top, and what changed most
+        # recently is what a candidate came to find out.
+        return queryset.order_by("-reported_at", "-id")
