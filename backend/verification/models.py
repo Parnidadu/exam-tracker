@@ -96,3 +96,55 @@ class MachineObservationConflict(models.Model):
             f"{self.exam_stage} - {self.track}: machine {self.machine_value!r} "
             f"vs human {self.human_value!r}"
         )
+
+
+class StatusChange(models.Model):
+    """One machine-observed status transition on one track.
+
+    Emitted when `machine_value` actually *changes*, not every time a
+    scraper confirms it. Most polls re-observe the same value; a change
+    log that recorded those would grow by a row per source per run and
+    tell a verifier nothing about what moved.
+
+    Distinct from MachineObservationConflict above, which records a write
+    that was *refused*. This records one that happened.
+    """
+
+    status_track = models.ForeignKey(
+        StatusTrack, on_delete=models.CASCADE, related_name="changes"
+    )
+
+    #: Blank when the machine had never observed this track before - which
+    #: is itself a change worth reviewing, since a status appeared where
+    #: there was none.
+    previous_value = models.CharField(max_length=50, blank=True)
+    new_value = models.CharField(max_length=50, blank=True)
+    previous_confidence = models.FloatField(null=True, blank=True)
+    new_confidence = models.FloatField(null=True, blank=True)
+
+    #: When the scraper saw it, as opposed to when this row was written.
+    observed_at = models.DateTimeField(null=True, blank=True)
+    detected_at = models.DateTimeField(auto_now_add=True)
+
+    #: Celery id of the follow-up task, kept so a change can be traced to
+    #: the work it kicked off rather than only asserted to have done so.
+    verification_task_id = models.CharField(max_length=255, blank=True)
+
+    #: Filled in by that task. Null means it has not run yet, which is a
+    #: different thing from "ran and found nothing to verify".
+    needs_verification = models.BooleanField(null=True, blank=True)
+    queue_reason = models.CharField(max_length=40, blank=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    objects: models.Manager["StatusChange"]
+
+    class Meta:
+        ordering = ["-detected_at", "-id"]
+        indexes = [
+            models.Index(fields=["-detected_at"]),
+            models.Index(fields=["needs_verification", "-detected_at"]),
+        ]
+
+    def __str__(self) -> str:
+        before = self.previous_value or "(none)"
+        return f"{self.status_track}: {before} -> {self.new_value or '(none)'}"
