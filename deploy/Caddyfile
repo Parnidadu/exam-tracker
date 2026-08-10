@@ -1,0 +1,50 @@
+# Reverse proxy and TLS termination for Exam Tracker.
+#
+# Caddy obtains and renews certificates from Let's Encrypt on its own, so
+# HTTPS needs no cron job and no manual renewal - the commonest way a
+# small deployment ends up serving an expired certificate.
+#
+# SITE_ADDRESS is the public hostname. Set it to `:80` for a local
+# rehearsal over plain HTTP, or to `https://localhost` with
+# TLS_DIRECTIVE=`tls internal` to rehearse the HTTPS path with a
+# locally-trusted certificate.
+
+{
+	# Staging and production are the same file; only the address differs.
+	email {$ACME_EMAIL:admin@example.gov.in}
+	admin off
+}
+
+{$SITE_ADDRESS} {
+	{$TLS_DIRECTIVE}
+
+	encode zstd gzip
+
+	# The API, the admin, and the OpenAPI schema go to Django.
+	@backend path /api/* /admin/* /health/ /static/*
+	handle @backend {
+		reverse_proxy api:8000 {
+			# Tells Django the original scheme. Without it Django believes
+			# every request arrived over plain HTTP and SECURE_SSL_REDIRECT
+			# redirects in a loop.
+			header_up X-Forwarded-Proto {scheme}
+			header_up X-Real-IP {remote_host}
+		}
+	}
+
+	# Everything else is the single-page app. try_files sends unknown
+	# paths to index.html so client-side routes survive a page refresh -
+	# without it, reloading /exams/upsc-cse-2026 is a 404.
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}

@@ -42,6 +42,17 @@ scheduler. No restart, no deploy.
 docker compose logs -f beat worker
 ```
 
+## Deploying
+
+Staging and production share one compose file and one settings module;
+only the environment file differs. Deploying is one command, or a merge
+to `main`. See [docs/deploy.md](docs/deploy.md).
+
+```bash
+make deploy-staging
+make deploy ENV=prod
+```
+
 ## Backups
 
 A nightly `pg_dump` runs from Celery Beat into a Docker volume, with a
