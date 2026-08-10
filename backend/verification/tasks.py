@@ -76,3 +76,17 @@ def send_verification_digest() -> dict[str, object]:
     from .digest import send_digest
 
     return send_digest()
+
+
+@shared_task(name="verification.tasks.send_elapsed_date_alerts")
+def send_elapsed_date_alerts() -> dict[str, object]:
+    """Alert on stages whose planned date passed with nothing recorded.
+
+    Separate from the digest on purpose. The digest is a routine prompt to
+    work a queue; this is "something that should have happened did not",
+    which is a different thing to be told and fires once per stage rather
+    than every morning.
+    """
+    from .alerts import send_elapsed_date_alerts as run
+
+    return run()

@@ -148,3 +148,37 @@ class StatusChange(models.Model):
     def __str__(self) -> str:
         before = self.previous_value or "(none)"
         return f"{self.status_track}: {before} -> {self.new_value or '(none)'}"
+
+
+class ElapsedDateAlert(models.Model):
+    """Records that a stage's planned date passed with nothing recorded.
+
+    Exists so the alert fires **once per stage**. A daily job with no
+    memory would re-alert every morning for as long as the stage stayed
+    unattended - which is precisely the stage nobody is attending to, so
+    the repeat lands on the same unread pile every day and the whole
+    signal is lost.
+
+    OneToOne rather than a flag on ExamStage: "once" is then a database
+    constraint rather than a promise made by the one code path that
+    happens to check first.
+    """
+
+    exam_stage = models.OneToOneField(
+        ExamStage, on_delete=models.CASCADE, related_name="elapsed_date_alert"
+    )
+    #: The date that had passed when this fired. Kept for context - the
+    #: stage's planned date may since have moved.
+    planned_date = models.DateField()
+    sent_at = models.DateTimeField(auto_now_add=True)
+    #: How many people were told. Zero is worth recording: it means the
+    #: alert condition was reached with nobody configured to hear it.
+    notified = models.PositiveIntegerField(default=0)
+
+    objects: models.Manager["ElapsedDateAlert"]
+
+    class Meta:
+        ordering = ["-sent_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"{self.exam_stage} - planned {self.planned_date}, no update"
