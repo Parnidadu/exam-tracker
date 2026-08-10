@@ -168,6 +168,15 @@ CELERY_RESULT_BACKEND = os.environ.get("CELERY_RESULT_BACKEND", CELERY_BROKER_UR
 #: effect on a running process.
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 
+#: Bounds how long a publish waits on an unresponsive broker. Without it
+#: a Redis host that accepts connections but never answers blocks the
+#: caller indefinitely - and callers here include a scrape run and an
+#: operator's admin request.
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "socket_connect_timeout": int(os.environ.get("CELERY_BROKER_CONNECT_TIMEOUT", "5")),
+    "socket_timeout": int(os.environ.get("CELERY_BROKER_SOCKET_TIMEOUT", "5")),
+}
+
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
