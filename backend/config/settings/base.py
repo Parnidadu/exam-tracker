@@ -142,6 +142,17 @@ SCRAPER_ROBOTS_TTL = int(os.environ.get("SCRAPER_ROBOTS_TTL", "3600"))
 #: Three allows for a board being briefly down without crying wolf.
 SOURCE_STALE_AFTER_MISSED_RUNS = int(os.environ.get("SOURCE_STALE_AFTER_MISSED_RUNS", "3"))
 
+# --- Observation matching (EXT-050) -----------------------------------
+#: Match scores at or above this auto-link an observation to an ExamStage;
+#: below it, the observation goes to triage for a human. Set high on
+#: purpose: a wrong auto-link writes into machine status data, while a
+#: needless queue item only costs someone a few seconds.
+MATCH_AUTO_LINK_THRESHOLD = float(os.environ.get("MATCH_AUTO_LINK_THRESHOLD", "0.85"))
+#: Two candidates within this of each other are treated as
+#: indistinguishable and sent to triage even when both score highly -
+#: picking between near-identical scores is a coin toss.
+MATCH_AMBIGUITY_MARGIN = float(os.environ.get("MATCH_AMBIGUITY_MARGIN", "0.05"))
+
 # --- Celery (EXT-046) -------------------------------------------------
 # Falls back to the Redis already provisioned in Compose, then to a local
 # default, so `manage.py` and the test suite work without a broker.
