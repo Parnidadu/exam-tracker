@@ -32,6 +32,7 @@ INSTALLED_APPS = [
     "django_celery_beat",
     "accounts",
     "exams",
+    "ops",
     "scraping",
     "verification",
 ]
@@ -204,6 +205,14 @@ CELERY_BEAT_SCHEDULE = {
             minute=int(os.environ.get("ELAPSED_DATE_ALERT_MINUTE", "30") or 30),
         ),
     },
+    # Nightly, in the quiet hours before either of the morning jobs.
+    "database-backup": {
+        "task": "ops.tasks.backup_database",
+        "schedule": crontab(
+            hour=int(os.environ.get("BACKUP_HOUR", "2") or 2),
+            minute=int(os.environ.get("BACKUP_MINUTE", "30") or 30),
+        ),
+    },
 }
 
 CELERY_TIMEZONE = TIME_ZONE
@@ -265,6 +274,15 @@ THROTTLE_USER_RATE = os.environ.get("THROTTLE_USER_RATE", "600/min")
 #: A deployment behind N proxies must set this to N, or the throttle
 #: either lumps every visitor together or trusts a spoofable header.
 TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "0") or 0)
+
+# --- Database backups (EXT-063) ---------------------------------------
+#: Where nightly dumps land. In Compose this is a named volume, so the
+#: backups outlive the container that wrote them - a backup on a
+#: container filesystem disappears with the next deploy.
+BACKUP_DIR = os.environ.get("BACKUP_DIR", "/backups")
+#: Dumps older than this are pruned, except the most recent, which is
+#: never deleted however old it gets.
+BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", "14") or 14)
 
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",

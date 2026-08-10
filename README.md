@@ -42,6 +42,18 @@ scheduler. No restart, no deploy.
 docker compose logs -f beat worker
 ```
 
+## Backups
+
+A nightly `pg_dump` runs from Celery Beat into a Docker volume, with a
+restore command that is refused against the live database unless you ask
+for it explicitly. The procedure, and the record of the last restore
+rehearsal, are in [docs/backups.md](docs/backups.md).
+
+```bash
+docker compose exec api python manage.py backup_database
+docker compose exec api python manage.py restore_database --into exam_tracker_scratch
+```
+
 ## Tests
 
 ```bash
