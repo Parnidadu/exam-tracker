@@ -33,6 +33,10 @@ services:
       - "8000:8000"
     env_file:
       - .env
+    volumes:
+      # Same volume as the worker, so `manage.py restore_database` can
+      # reach the dumps the nightly job wrote.
+      - backups:/backups
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +54,10 @@ services:
     command: celery -A config worker --loglevel=info
     env_file:
       - .env
+    volumes:
+      # Named volume, so nightly dumps outlive the container that wrote
+      # them. A backup on a container filesystem is gone at the next deploy.
+      - backups:/backups
     depends_on:
       db:
         condition: service_healthy
@@ -87,3 +95,4 @@ services:
 
 volumes:
   postgres_data:
+  backups:
