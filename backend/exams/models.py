@@ -1,6 +1,7 @@
 from datetime import timedelta
 from zoneinfo import available_timezones
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -231,4 +232,171 @@ class StatusTrack(models.Model):
                         "Use verification.observations.apply_machine_observation(), "
                         "which records a conflict instead of overwriting."
                     )
+        super().save(*args, **kwargs)
+
+
+class InvalidDiscrepancyTransition(Exception):
+    """Raised when a discrepancy is moved to a state it cannot reach from
+    where it is. See Discrepancy.TRANSITIONS."""
+
+
+class Discrepancy(models.Model):
+    """Something that went wrong with a stage: it was postponed, cancelled,
+    a paper leaked, an answer key was wrong, it has to be re-run, or a
+    court has stayed it.
+
+    Human-entered throughout. A scraper may hint that something happened,
+    but "this exam's paper leaked" is a claim with consequences for real
+    candidates, and it is not one this system makes on its own.
+
+    Attached to an ExamStage rather than an Exam because that is where the
+    domain puts everything else that can go wrong - stages progress
+    independently, and a leak in prelims says nothing about mains.
+    """
+
+    class Type(models.TextChoices):
+        POSTPONEMENT = "postponement", "Postponement"
+        CANCELLATION = "cancellation", "Cancellation"
+        PAPER_LEAK = "paper_leak", "Paper leak"
+        KEY_ERROR = "key_error", "Answer key error"
+        RE_EXAM = "re_exam", "Re-examination"
+        COURT_STAY = "court_stay", "Court stay"
+        #: Deliberate escape hatch. Without it, anything the list does not
+        #: name has to be filed under a type it is not - a centre change
+        #: recorded as a "postponement" is worse than one recorded as
+        #: "other", because the first is wrong where the second is only
+        #: vague. `description` is required, so an "other" still says what
+        #: happened.
+        OTHER = "other", "Other"
+
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
+    class Status(models.TextChoices):
+        """The lifecycle. Reported is where everything starts; confirmed
+        means someone checked the evidence; resolved means the situation
+        has run its course. Dismissed is for a claim that turned out not
+        to be one."""
+
+        REPORTED = "reported", "Reported"
+        CONFIRMED = "confirmed", "Confirmed"
+        RESOLVED = "resolved", "Resolved"
+        DISMISSED = "dismissed", "Dismissed"
+
+    #: What each state may become. Resolving straight from `reported` is
+    #: deliberately absent: it would close something nobody ever checked,
+    #: and "resolved" would stop meaning that the claim was real.
+    TRANSITIONS: dict[str, set[str]] = {
+        Status.REPORTED: {Status.CONFIRMED, Status.DISMISSED},
+        Status.CONFIRMED: {Status.RESOLVED, Status.DISMISSED},
+        Status.RESOLVED: set(),
+        Status.DISMISSED: set(),
+    }
+
+    #: States that end the lifecycle.
+    TERMINAL = {Status.RESOLVED, Status.DISMISSED}
+
+    exam_stage = models.ForeignKey(
+        ExamStage, on_delete=models.PROTECT, related_name="discrepancies"
+    )
+    discrepancy_type = models.CharField(max_length=20, choices=Type.choices)
+    severity = models.CharField(max_length=10, choices=Severity.choices)
+    status = models.CharField(max_length=15, choices=Status.choices, default=Status.REPORTED)
+
+    #: What happened, in words. Required: a type and a severity alone tell
+    #: a candidate nothing about their exam.
+    description = models.TextField()
+
+    # --- evidence ------------------------------------------------------
+    #: The official notice, court order or press report this rests on. A
+    #: discrepancy without a source a reader can check is a rumour, and
+    #: this app exists to be the opposite of that.
+    evidence_url = models.URLField(max_length=500, blank=True)
+    evidence_note = models.TextField(blank=True)
+
+    #: When it actually happened, as opposed to when someone recorded it.
+    #: Nullable because a leak often surfaces long after the fact and the
+    #: date may genuinely not be known yet.
+    occurred_on = models.DateField(null=True, blank=True)
+
+    # --- lifecycle -----------------------------------------------------
+    reported_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="reported_discrepancies",
+    )
+    reported_at = models.DateTimeField(auto_now_add=True)
+
+    resolved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="resolved_discrepancies",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    #: Why it was resolved or dismissed. Required for both: a dismissed
+    #: leak claim with no explanation is indistinguishable from one nobody
+    #: bothered to look at.
+    resolution_note = models.TextField(blank=True)
+
+    history = HistoricalRecords()
+
+    objects: models.Manager["Discrepancy"]
+
+    class Meta:
+        verbose_name_plural = "discrepancies"
+        ordering = ["-reported_at", "-id"]
+        indexes = [
+            models.Index(fields=["status", "-reported_at"]),
+            models.Index(fields=["exam_stage", "status"]),
+            models.Index(fields=["discrepancy_type", "-reported_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.exam_stage} - {self.get_discrepancy_type_display()} ({self.status})"
+
+    @property
+    def is_open(self) -> bool:
+        return self.status not in self.TERMINAL
+
+    def can_become(self, new_status: str) -> bool:
+        return new_status in self.TRANSITIONS.get(self.status, set())
+
+    def clean(self) -> None:
+        super().clean()
+        if self.status in self.TERMINAL and not self.resolution_note.strip():
+            raise ValidationError(
+                {"resolution_note": "Say why this was resolved or dismissed."}
+            )
+
+    def save(self, *args, **kwargs):
+        """Guards the lifecycle wherever the write comes from.
+
+        Same reasoning as StatusTrack's own save-time backstop: the API
+        (EXT-054) will be the intended path, but a management command or
+        the admin writing a nonsense transition would corrupt the one
+        thing this model exists to record. Checking here means "resolved
+        implies someone confirmed it" holds for every caller.
+        """
+        if self.pk is not None:
+            previous = (
+                Discrepancy.objects.filter(pk=self.pk).values_list("status", flat=True).first()
+            )
+            if previous is not None and previous != self.status:
+                allowed = sorted(self.TRANSITIONS.get(previous, set()))
+                if self.status not in self.TRANSITIONS.get(previous, set()):
+                    raise InvalidDiscrepancyTransition(
+                        f"A {previous} discrepancy cannot become {self.status}. "
+                        f"Allowed from {previous}: "
+                        f"{allowed or 'nothing - it is closed'}."
+                    )
+                # Stamping this here rather than trusting callers keeps
+                # "closed" and "has a closing time" from drifting apart.
+                if self.status in self.TERMINAL and self.resolved_at is None:
+                    self.resolved_at = timezone.now()
+
         super().save(*args, **kwargs)
