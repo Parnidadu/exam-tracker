@@ -1,0 +1,145 @@
+# Production and staging. One file, two environments.
+#
+# Staging differs from production only by its env file - domain, secrets,
+# database, and whether HSTS is enforced. Same images, same services, same
+# healthchecks. A staging environment assembled differently rehearses
+# something you are not about to do.
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.staging up -d
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Or `make deploy ENV=staging` / `make deploy ENV=prod`, which is the same
+# thing plus migrate and collectstatic in the right order.
+
+# Namespaced per environment. Compose derives its project name from the
+# directory otherwise, so production, staging and a developer's local
+# stack in the same checkout would share volumes - meaning one database
+# volume between all three. That is a data-loss bug waiting for whoever
+# runs staging on the production host.
+name: exam-tracker-${DEPLOY_ENV:-prod}
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Deliberately no `ports:`. In development the database is published
+    # to the host for convenience; in production nothing outside the
+    # compose network has any business reaching it.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    # gunicorn, not runserver: runserver is single-threaded, reloads on
+    # file changes and is explicitly not for production use.
+    command: >
+      gunicorn config.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers ${GUNICORN_WORKERS:-3}
+      --timeout ${GUNICORN_TIMEOUT:-60}
+      --access-logfile -
+      --error-logfile -
+    env_file:
+      - ${ENV_FILE:-.env.prod}
+    volumes:
+      - static_files:/app/staticfiles
+      - backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  worker:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: celery -A config worker --loglevel=info
+    env_file:
+      - ${ENV_FILE:-.env.prod}
+    volumes:
+      - backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  beat:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: celery -A config beat --loglevel=info --pidfile=/tmp/celerybeat.pid
+    env_file:
+      - ${ENV_FILE:-.env.prod}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kill -0 $$(cat /tmp/celerybeat.pid)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/web.Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      # QUIC. Harmless if the host firewall drops it.
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS}
+      TLS_DIRECTIVE: ${TLS_DIRECTIVE:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      # Certificates and ACME account keys. Losing this volume means
+      # re-issuing on every restart, which hits Let's Encrypt rate limits
+      # quickly.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  static_files:
+  backups:
+  caddy_data:
+  caddy_config:
