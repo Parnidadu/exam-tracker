@@ -53,6 +53,12 @@ make deploy-staging
 make deploy ENV=prod
 ```
 
+## When something goes wrong
+
+[docs/runbook.md](docs/runbook.md) has numbered steps for the three
+scenarios that need them: a source stopped working, bad data is showing
+publicly, and restoring from backup.
+
 ## Performance
 
 The public dashboard was load-tested against the production
