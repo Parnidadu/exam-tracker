@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from celery.schedules import crontab
+
 from config.observability import init_sentry
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -177,6 +179,24 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
     "socket_timeout": int(os.environ.get("CELERY_BROKER_SOCKET_TIMEOUT", "5")),
 }
 
+#: The one fixed, system-wide schedule. Per-board scrape jobs are not
+#: here - they are derived from Source rows (EXT-046) so they can be added
+#: and paused from admin. This one exists whether or not any board is
+#: configured, so it belongs in code.
+#:
+#: django_celery_beat's DatabaseScheduler merges this into PeriodicTask on
+#: startup, and scraping.schedules only ever prunes rows under its own
+#: "scrape-source-" prefix, so the two cannot tread on each other.
+CELERY_BEAT_SCHEDULE = {
+    "verification-digest": {
+        "task": "verification.tasks.send_verification_digest",
+        "schedule": crontab(
+            hour=int(os.environ.get("VERIFICATION_DIGEST_HOUR", "7") or 7),
+            minute=int(os.environ.get("VERIFICATION_DIGEST_MINUTE", "0") or 0),
+        ),
+    },
+}
+
 CELERY_TIMEZONE = TIME_ZONE
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -191,6 +211,31 @@ CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "360"))
 #: a lost task is picked up by the next tick rather than re-fetching a
 #: board we may already have hit.
 CELERY_TASK_ACKS_LATE = False
+
+# --- Email and the verification digest (EXT-060) ----------------------
+#: Console by default so a developer sees the digest without running a
+#: mail server, and so a half-configured deployment prints it rather than
+#: silently failing to send.
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.console.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587") or 587)
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") not in {"0", "false", "False"}
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL", "exam-tracker@example.gov.in"
+)
+
+#: Where the verifier console lives, for the link in the digest. Blank
+#: omits the link rather than emitting a broken one.
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "")
+
+#: How many queue items the digest names individually before summarising.
+VERIFICATION_DIGEST_MAX_ITEMS = int(
+    os.environ.get("VERIFICATION_DIGEST_MAX_ITEMS", "20") or 20
+)
 
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
