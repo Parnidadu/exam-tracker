@@ -31,12 +31,12 @@ knowing about the other.
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
 
 from exams.models import StatusTrack
+from scraping.dates import parse_date
 from scraping.parsers import Observation, Parser, register
 
 #: Leading phrases worth drawing a conclusion from, in priority order.
@@ -83,14 +83,6 @@ def _normalise_crp(match: re.Match[str]) -> str:
     stream = match.group(1).strip().rstrip("-")
     roman = match.group(2).strip()
     return f"CRP-{stream}-{roman}"
-
-
-def _parse_date(text: str) -> date | None:
-    """IBPS dates read "17 Jul 26"."""
-    try:
-        return datetime.strptime(text.strip(), "%d %b %y").date()
-    except ValueError:
-        return None
 
 
 def _stage_hint_for(text: str) -> str:
@@ -150,7 +142,11 @@ class IbpsCrpUpdatesParser(Parser):
         observed_date = None
         date_div = entry.select_one("div.detail-first-heading")
         if date_div is not None:
-            observed_date = _parse_date(date_div.get_text(strip=True))
+            # EXT-048: the shared normaliser rather than a strptime
+            # format local to this parser. IBPS writes "17 Jul 26"
+            # today, but a board changing its date format should not
+            # need a code change in the parser that reads it.
+            observed_date = parse_date(date_div.get_text(strip=True))
 
         link = entry.find_parent("a", href=True)
         href = link["href"] if isinstance(link, Tag) else ""
