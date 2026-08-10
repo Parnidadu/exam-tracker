@@ -10,7 +10,7 @@ from django_celery_beat.models import PeriodicTask
 
 from scraping.admin import SourceHealthAdmin
 from scraping.health import health_for, record_failure, record_success
-from scraping.models import Source, SourceHealth
+from scraping.models import Source, SourceHealth, TriageItem
 from scraping.schedules import schedule_name
 
 
@@ -288,3 +288,128 @@ def test_the_source_list_shows_health_beside_the_schedule(admin_client, source):
     body = admin_client.get("/admin/scraping/source/").content.decode()
 
     assert "failing (1)" in body
+
+
+# --- EXT-051: the triage queue, driven through the real admin views ----
+
+
+@pytest.fixture
+def triage_item(source):
+    from scraping.matching import match_observation
+    from scraping.parsers import Observation
+    from scraping.triage import queue_observation
+
+    obs = Observation(
+        exam_name="CISF AC(EXE) LDCE-2026",
+        track="result",
+        value="declared",
+        confidence=0.9,
+        source_url="https://www.upsc.gov.in/whats-new/x",
+        raw_text="Final Result: CISF AC(EXE) LDCE-2026",
+    )
+    return queue_observation(obs, match_observation(obs, board=source.board), source=source)
+
+
+@pytest.mark.django_db
+def test_the_triage_queue_is_listed_in_admin(admin_client, triage_item):
+    response = admin_client.get("/admin/scraping/triageitem/")
+
+    assert response.status_code == 200
+    assert b"CISF AC(EXE) LDCE-2026" in response.content
+    # All three ways out are offered on the row itself.
+    for label in (b"Link", b"Create exam", b"Dismiss"):
+        assert label in response.content
+
+
+@pytest.mark.django_db
+def test_an_operator_can_link_an_observation_to_a_stage_from_admin(
+    admin_client, triage_item, board
+):
+    from exams.models import Exam, ExamStage
+
+    exam = Exam.objects.create(
+        board=board, code="CISF-LDCE", name="CISF AC LDCE", cycle_year=2026, category="x"
+    )
+    stage = ExamStage.objects.create(exam=exam, stage_type=ExamStage.StageType.SINGLE, sequence=1)
+
+    response = admin_client.post(
+        f"/admin/scraping/triageitem/{triage_item.pk}/link/",
+        {"exam_stage": stage.pk, "note": "obviously the LDCE"},
+    )
+
+    assert response.status_code == 302
+    triage_item.refresh_from_db()
+    assert triage_item.status == TriageItem.Status.LINKED
+    assert triage_item.exam_stage == stage
+    assert triage_item.resolved_by
+
+
+@pytest.mark.django_db
+def test_an_operator_can_create_a_new_exam_from_admin(admin_client, triage_item, board):
+    from exams.models import Exam, ExamStage
+
+    response = admin_client.post(
+        f"/admin/scraping/triageitem/{triage_item.pk}/create-exam/",
+        {
+            "board": board.pk,
+            "code": "CISF-LDCE",
+            "name": "CISF AC(EXE) LDCE",
+            "cycle_year": 2026,
+            "stage_type": ExamStage.StageType.SINGLE,
+            "note": "new cycle nobody had entered",
+        },
+    )
+
+    assert response.status_code == 302
+    exam = Exam.objects.get(board=board, code="CISF-LDCE", cycle_year=2026)
+    triage_item.refresh_from_db()
+    assert triage_item.status == TriageItem.Status.CREATED
+    assert triage_item.exam_stage.exam == exam
+
+
+@pytest.mark.django_db
+def test_an_operator_can_dismiss_from_admin(admin_client, triage_item):
+    response = admin_client.post(
+        f"/admin/scraping/triageitem/{triage_item.pk}/dismiss/",
+        {"note": "departmental promotion exam, not tracked"},
+    )
+
+    assert response.status_code == 302
+    triage_item.refresh_from_db()
+    assert triage_item.status == TriageItem.Status.DISMISSED
+    assert triage_item.resolution_note == "departmental promotion exam, not tracked"
+
+
+@pytest.mark.django_db
+def test_the_create_form_prefills_the_year_it_read(admin_client, triage_item):
+    """Prefill only - the operator confirms it, so a wrong guess costs a
+    keystroke rather than creating an exam under the wrong cycle."""
+    response = admin_client.get(f"/admin/scraping/triageitem/{triage_item.pk}/create-exam/")
+
+    assert response.status_code == 200
+    assert b'value="2026"' in response.content
+
+
+@pytest.mark.django_db
+def test_a_triage_item_cannot_be_edited_as_a_form(admin_client, triage_item):
+    """Retyping exam_name would change the fingerprint and split one
+    recurring problem into two queue items."""
+    from scraping.admin import TriageItemAdmin
+
+    assert not TriageItemAdmin(TriageItem, admin.site).has_change_permission(None)
+    assert not TriageItemAdmin(TriageItem, admin.site).has_add_permission(None)
+
+
+@pytest.mark.django_db
+def test_resolving_an_already_resolved_item_warns_rather_than_double_applying(
+    admin_client, triage_item
+):
+    admin_client.post(f"/admin/scraping/triageitem/{triage_item.pk}/dismiss/", {"note": "first"})
+
+    response = admin_client.post(
+        f"/admin/scraping/triageitem/{triage_item.pk}/dismiss/", {"note": "second"}, follow=True
+    )
+
+    triage_item.refresh_from_db()
+    assert triage_item.resolution_note == "first"
+    assert b"already dismissed" in response.content

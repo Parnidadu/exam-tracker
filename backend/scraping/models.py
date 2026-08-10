@@ -3,7 +3,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from simple_history.models import HistoricalRecords
 
-from exams.models import Board
+from exams.models import Board, ExamStage
 
 CRON_FIELDS = 5
 
@@ -133,6 +133,111 @@ class SourceHealth(models.Model):
     @property
     def has_ever_succeeded(self) -> bool:
         return self.last_success_at is not None
+
+
+class TriageItem(models.Model):
+    """An observation the matcher would not link on its own.
+
+    The observation itself is a plain value object (scraping.parsers), so
+    its fields are copied in rather than referenced - by the time an
+    operator opens the queue the parse that produced it is long gone, and
+    a queue item that cannot show what it saw is not reviewable.
+
+    One row per *distinct* unmatched observation, not per scrape run. The
+    same unresolved notice reappears on every poll, and without the
+    fingerprint below a board nobody has got round to configuring would
+    bury the queue in copies of one problem within a day.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Needs triage"
+        LINKED = "linked", "Linked to a stage"
+        CREATED = "created", "New exam created"
+        DISMISSED = "dismissed", "Dismissed"
+
+    class Reason(models.TextChoices):
+        """Mirrors scraping.matching.TriageReason. Stored rather than
+        recomputed: the exam list changes, and an item should still say
+        why it landed here when it did."""
+
+        NO_CANDIDATES = "no_candidates", "No exam matched"
+        BELOW_THRESHOLD = "below_threshold", "Best match scored too low"
+        AMBIGUOUS = "ambiguous", "Two candidates scored too close"
+        NO_STAGE = "no_stage", "Matched an exam but not a stage"
+
+    source = models.ForeignKey(
+        Source,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="triage_items",
+        help_text="Which source produced this. Kept if the source is later deleted.",
+    )
+
+    # --- what was observed --------------------------------------------
+    exam_name = models.CharField(max_length=500)
+    track = models.CharField(max_length=20)
+    value = models.CharField(max_length=50)
+    stage_hint = models.CharField(max_length=100, blank=True)
+    observed_date = models.DateField(null=True, blank=True)
+    #: The parser's confidence in the *reading*, not in the match.
+    parser_confidence = models.FloatField(default=1.0)
+    source_url = models.URLField(max_length=500, blank=True)
+    raw_text = models.TextField(blank=True)
+
+    # --- why it needs a human -----------------------------------------
+    reason = models.CharField(max_length=30, choices=Reason.choices)
+    #: The best score the matcher managed. Zero when nothing matched.
+    match_confidence = models.FloatField(default=0.0)
+    #: Candidates the matcher considered, best first, as
+    #: [{"exam_stage_id": int, "label": str, "score": float}]. Stored so
+    #: the operator is offered the same shortlist the matcher had, without
+    #: re-running scoring against an exam list that has since changed.
+    candidates = models.JSONField(default=list, blank=True)
+
+    # --- resolution ----------------------------------------------------
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    exam_stage = models.ForeignKey(
+        ExamStage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="triage_items",
+        help_text="Set once an operator links or creates.",
+    )
+    resolved_by = models.CharField(max_length=255, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution_note = models.TextField(blank=True)
+
+    # --- recurrence -----------------------------------------------------
+    #: sha256 over the source and the observation's identifying fields.
+    fingerprint = models.CharField(max_length=64, unique=True, db_index=True)
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now_add=True)
+    #: How many scrape runs have produced this same unmatched observation.
+    #: A high count is a signal in itself - it means a real notice nobody
+    #: has resolved, not a one-off oddity.
+    times_seen = models.PositiveIntegerField(default=1)
+
+    history = HistoricalRecords()
+
+    class Meta:
+        ordering = ["status", "-times_seen", "-last_seen_at", "-id"]
+        indexes = [
+            models.Index(fields=["status", "-last_seen_at"]),
+            models.Index(fields=["status", "reason"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.exam_name} ({self.get_reason_display()})"
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status == self.Status.PENDING
+
+    @property
+    def is_resolved(self) -> bool:
+        return not self.is_pending
 
 
 class Snapshot(models.Model):

@@ -17,6 +17,24 @@ from .fetch import FetchResult, fetch
 from .models import Snapshot, Source
 
 
+def storable_text(text: str) -> str:
+    """Strip bytes Postgres refuses to keep in a text column.
+
+    Postgres rejects NUL (0x00) in `text`, and real boards serve them: the
+    captured UPSC page in our own fixtures contains two, sitting between
+    two closing divs. Storing the body verbatim therefore raises DataError
+    on every single poll of that board - and because an unexpected error
+    is recorded as a failure and re-raised (EXT-047), the source would
+    fail permanently rather than obviously.
+
+    Only the *stored* text is cleaned. `content_hash` still runs over the
+    raw bytes, so two bodies differing only in NULs are still recognised
+    as different - change detection stays faithful to what was served even
+    though the column cannot hold it byte for byte.
+    """
+    return text.replace("\x00", "")
+
+
 def content_hash(content: bytes) -> str:
     """sha256 of the raw bytes.
 
@@ -73,7 +91,7 @@ def store_snapshot(source: Source, result: FetchResult) -> SnapshotResult:
         source=source,
         url=result.url,
         content_hash=digest,
-        content=result.text,
+        content=storable_text(result.text),
         status_code=result.status_code,
     )
     return SnapshotResult(snapshot=snapshot, changed=True)

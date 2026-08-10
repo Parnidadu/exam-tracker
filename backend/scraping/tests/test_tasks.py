@@ -186,3 +186,149 @@ def test_an_unexpected_error_is_recorded_as_a_failure_and_still_raised(source, m
     health = health_for(source)
     assert health.consecutive_failures == 1
     assert "ValueError" in health.last_error
+
+
+# --- EXT-051: a changed page is parsed, matched and routed -------------
+
+
+def _upsc_source(db_board=None):
+    from exams.models import Board
+
+    board = db_board or Board.objects.create(
+        name="Union Public Service Commission", code="UPSC", official_url="https://www.upsc.gov.in/"
+    )
+    return Source.objects.create(
+        board=board,
+        name="UPSC what's new",
+        url="https://www.upsc.gov.in/",
+        parser_key="upsc_whats_new",
+    )
+
+
+def _serve_real_page(monkeypatch, source, *, changed=True):
+    """Serves the captured UPSC page, with a fresh content hash each call.
+
+    A distinct hash per call is what a real board looks like when it adds
+    a notice: the body changed, so the page is re-parsed, and the notices
+    that were already there come round again. Reusing one hash would
+    instead violate the (source, content_hash) constraint.
+    """
+    from itertools import count
+    from pathlib import Path
+
+    from scraping.snapshots import SnapshotResult, storable_text
+
+    html = storable_text(
+        (Path(__file__).parent / "fixtures" / "upsc_whats_new.html").read_text(
+            encoding="utf-8", errors="replace"
+        )
+    )
+    counter = count(1)
+
+    def fake(_source):
+        snapshot = Snapshot.objects.create(
+            source=_source, url=_source.url,
+            content_hash=f"{next(counter):064d}",
+            content=html, status_code=200,
+        )
+        return SnapshotResult(snapshot=snapshot, changed=changed)
+
+    monkeypatch.setattr("scraping.tasks.fetch_and_store", fake)
+
+
+def test_a_changed_page_is_parsed_and_its_observations_routed(monkeypatch):
+    """End to end on the real captured page: nothing is configured, so
+    every observation should land in triage rather than vanish."""
+    from scraping.models import TriageItem
+
+    source = _upsc_source()
+    _serve_real_page(monkeypatch, source)
+
+    result = scrape_source(source.pk)
+
+    assert result["parsed"] is True
+    assert result["observations"] > 0
+    assert result["queued_for_triage"] == result["observations"]
+    assert TriageItem.objects.count() == result["observations"]
+
+
+def test_a_configured_exam_is_linked_instead_of_queued(monkeypatch):
+    from exams.models import Exam, ExamStage
+    from scraping.models import TriageItem
+
+    source = _upsc_source()
+    exam = Exam.objects.create(
+        board=source.board, code="CSE", name="Civil Services Examination",
+        cycle_year=2026, category="x",
+    )
+    ExamStage.objects.create(exam=exam, stage_type=ExamStage.StageType.MAINS, sequence=2)
+    _serve_real_page(monkeypatch, source)
+
+    result = scrape_source(source.pk)
+
+    assert result["linked"] >= 1
+    assert TriageItem.objects.count() == result["queued_for_triage"]
+
+
+def test_an_unchanged_page_is_not_reparsed(monkeypatch):
+    """EXT-042's short-circuit: most polls find nothing new, and
+    re-parsing an identical page would re-run the matcher over
+    observations already dealt with."""
+    from scraping.models import TriageItem
+
+    source = _upsc_source()
+    _serve_real_page(monkeypatch, source, changed=False)
+
+    result = scrape_source(source.pk)
+
+    assert result["parsed"] is False
+    assert not TriageItem.objects.exists()
+
+
+def test_a_parser_key_naming_nothing_does_not_fail_the_run(monkeypatch):
+    """Source.parser_key is free text by design, so this is a config
+    mistake fixed in admin - not a reason to lose a stored snapshot."""
+    source = _upsc_source()
+    source.parser_key = "no_such_parser"
+    source.save()
+    _serve_real_page(monkeypatch, source)
+
+    result = scrape_source(source.pk)
+
+    assert result["status"] == "ok"
+    assert result["parsed"] is False
+    assert result["parser_missing"] == "no_such_parser"
+
+
+def test_a_parser_that_raises_does_not_fail_the_run(monkeypatch):
+    source = _upsc_source()
+    _serve_real_page(monkeypatch, source)
+
+    class Exploding:
+        def parse(self, html):
+            raise ValueError("board redesigned its markup")
+
+    monkeypatch.setattr("scraping.tasks.get_parser", lambda key: Exploding())
+
+    result = scrape_source(source.pk)
+
+    assert result["status"] == "ok", "the snapshot is already stored; losing it loses the evidence"
+    assert result["parsed"] is False
+    assert result["parser_failed"]
+
+
+def test_notices_that_persist_across_page_changes_do_not_multiply_queue_items(monkeypatch):
+    """A board adding one notice re-parses the whole page, so every
+    unresolved notice already there comes round again. Without the
+    fingerprint the queue would grow by a full page every time the board
+    posted anything."""
+    from scraping.models import TriageItem
+
+    source = _upsc_source()
+    _serve_real_page(monkeypatch, source)
+
+    first = scrape_source(source.pk)
+    scrape_source(source.pk)
+
+    assert TriageItem.objects.count() == first["observations"]
+    assert TriageItem.objects.filter(times_seen=2).count() == first["observations"]
