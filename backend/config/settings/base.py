@@ -246,11 +246,40 @@ VERIFICATION_DIGEST_MAX_ITEMS = int(
     os.environ.get("VERIFICATION_DIGEST_MAX_ITEMS", "20") or 20
 )
 
+# --- Throttling (EXT-062) ---------------------------------------------
+#: Anonymous callers are throttled per IP, signed-in staff per account.
+#: Staff get a far higher ceiling: a verifier working the queue by
+#: keyboard makes bursts of requests that would look abusive from an
+#: anonymous client, and rate-limiting your own operators out of the
+#: console during an incident is its own kind of outage.
+THROTTLE_ANON_RATE = os.environ.get("THROTTLE_ANON_RATE", "60/min")
+THROTTLE_USER_RATE = os.environ.get("THROTTLE_USER_RATE", "600/min")
+
+#: How many reverse proxies sit in front of Django.
+#:
+#: This is what makes "per IP" true. Left unset, DRF identifies a client
+#: by the whole X-Forwarded-For header when one is present - and that
+#: header comes from the client, so varying it per request buys an
+#: attacker an unlimited supply of fresh throttle buckets. Zero means
+#: "trust only REMOTE_ADDR", which is correct with no proxy in front.
+#: A deployment behind N proxies must set this to N, or the throttle
+#: either lumps every visitor together or trusts a spoofable header.
+TRUSTED_PROXY_COUNT = int(os.environ.get("TRUSTED_PROXY_COUNT", "0") or 0)
+
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PERMISSION_CLASSES": ["accounts.permissions.IsVerifierOrAdminOrReadOnly"],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": THROTTLE_ANON_RATE,
+        "user": THROTTLE_USER_RATE,
+    },
+    "NUM_PROXIES": TRUSTED_PROXY_COUNT,
 }
 
 SPECTACULAR_SETTINGS = {

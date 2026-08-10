@@ -14,6 +14,7 @@ throw the lot away every time someone verifies something.
 
 from django.conf import settings
 from django.core.cache import cache
+from django.http import JsonResponse
 from django.utils.decorators import method_decorator
 from django.views.decorators.vary import vary_on_headers
 
@@ -61,6 +62,38 @@ class PublicCacheMixin:
         audience = "auth" if request.user.is_authenticated else "anon"
         return f"public:{public_cache_version()}:{audience}:{request.path}?{query}"
 
+    def _throttled_response(self, request):
+        """Apply this view's throttles to a request the cache can answer.
+
+        Serving from cache returns before DRF's dispatch ever runs, and
+        DRF checks throttles inside dispatch - so without this, every
+        repeat of a cached request was free. The public endpoints, the
+        ones a rate limit is actually for, were counted once and then
+        served without limit for as long as the entry lived.
+
+        Only reached on a hit. A miss falls through to DRF, which does its
+        own check; running one here as well would count each miss twice
+        and quietly halve the configured rate.
+        """
+        for throttle in self.get_throttles():
+            if not throttle.allow_request(request, self):
+                wait = throttle.wait()
+                response = JsonResponse(
+                    {
+                        "detail": (
+                            "Request was throttled."
+                            + (f" Expected available in {int(wait) + 1} seconds." if wait else "")
+                        )
+                    },
+                    status=429,
+                )
+                if wait:
+                    # Without this a well-behaved client is left guessing
+                    # and a badly-behaved one retries immediately.
+                    response["Retry-After"] = str(int(wait) + 1)
+                return response
+        return None
+
     @method_decorator(vary_on_headers("Cookie"))
     def dispatch(self, request, *args, **kwargs):
         if request.method != "GET":
@@ -69,6 +102,11 @@ class PublicCacheMixin:
         key = self._cache_key(request)
         cached = cache.get(key)
         if cached is not None:
+            # Looked up first because reading the cache has no side
+            # effects; nothing is served until the throttle has had its say.
+            throttled = self._throttled_response(request)
+            if throttled is not None:
+                return throttled
             cached["X-Cache"] = "HIT"
             return cached
 
