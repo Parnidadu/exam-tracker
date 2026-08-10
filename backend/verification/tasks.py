@@ -62,3 +62,17 @@ def process_status_change(change_id: int) -> dict[str, object]:
         "needs_verification": change.needs_verification,
         "queue_reason": change.queue_reason,
     }
+
+
+@shared_task(name="verification.tasks.send_verification_digest")
+def send_verification_digest() -> dict[str, object]:
+    """Daily digest of everything waiting for a verifier.
+
+    Scheduled from CELERY_BEAT_SCHEDULE rather than from a Source row: the
+    Source-derived schedules (EXT-046) are per-board scrape jobs, and this
+    is a fixed system job that exists whether or not any board is
+    configured.
+    """
+    from .digest import send_digest
+
+    return send_digest()
