@@ -187,7 +187,11 @@ describe('ExamList', () => {
     renderList()
     await screen.findByLabelText('Exams')
 
-    expect(calls[0]).toBe('/api/exams/')
+    // Found by path rather than by position: the page also loads boards
+    // and the public discrepancy feed, and which of those resolves first
+    // is not something this test is about.
+    const examCalls = calls.filter((url) => url.startsWith('/api/exams/'))
+    expect(examCalls).toContain('/api/exams/')
   })
 
   it('clears every filter at once', async () => {

@@ -11,6 +11,7 @@ from exams.views import (
     DiscrepancyTransitionView,
     ExamDetailView,
     ExamListView,
+    PublicDiscrepancyFeedView,
 )
 from verification.views import (
     ExamVerificationHistoryView,
@@ -38,6 +39,11 @@ urlpatterns = [
         "api/discrepancies/<int:pk>/transition/",
         DiscrepancyTransitionView.as_view(),
         name="discrepancy-transition",
+    ),
+    path(
+        "api/discrepancy-feed/",
+        PublicDiscrepancyFeedView.as_view(),
+        name="discrepancy-feed",
     ),
     path("api/exams/", ExamListView.as_view(), name="exam-list"),
     path("api/exams/<slug:slug>/", ExamDetailView.as_view(), name="exam-detail"),

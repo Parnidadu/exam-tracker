@@ -250,3 +250,25 @@ export interface TransitionPayload {
   resolution_note?: string
   evidence_url?: string
 }
+
+/**
+ * Mirrors PublicDiscrepancySerializer (EXT-055). Deliberately narrower
+ * than `Discrepancy`: no staff identities, and `status` can only ever be
+ * one the server considers public.
+ */
+export interface PublicDiscrepancy {
+  id: number
+  exam_slug: string
+  exam_name: string
+  board_code: string
+  stage_type: string
+  discrepancy_type: DiscrepancyType
+  type_label: string
+  severity: DiscrepancySeverity
+  status: 'confirmed' | 'resolved'
+  description: string
+  evidence_url: string
+  occurred_on: string | null
+  resolution_note: string
+  resolved_at: string | null
+}

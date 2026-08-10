@@ -299,6 +299,18 @@ class Discrepancy(models.Model):
     #: States that end the lifecycle.
     TERMINAL = {Status.RESOLVED, Status.DISMISSED}
 
+    #: The only states a member of the public may see (EXT-055).
+    #:
+    #: `reported` is excluded because it is an unchecked claim - naming a
+    #: real board and a real exam, and possibly wrong. `dismissed` is
+    #: excluded because it is a claim someone checked and found *not* to
+    #: be true, and republishing "we looked into the leak allegation" is
+    #: how a rumour outlives its own correction.
+    #:
+    #: Defined here rather than in the feed's queryset so there is exactly
+    #: one answer to "is this public", wherever it is asked from.
+    PUBLIC = {Status.CONFIRMED, Status.RESOLVED}
+
     exam_stage = models.ForeignKey(
         ExamStage, on_delete=models.PROTECT, related_name="discrepancies"
     )

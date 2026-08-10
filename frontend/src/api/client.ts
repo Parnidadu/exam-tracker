@@ -7,6 +7,7 @@ import type {
   ExamSummary,
   OpenDiscrepancyPayload,
   Paginated,
+  PublicDiscrepancy,
   QueueItem,
   TransitionPayload,
   VerificationRecord,
@@ -132,4 +133,15 @@ export function transitionDiscrepancy(
     method: 'POST',
     body: JSON.stringify(payload),
   })
+}
+
+export function fetchPublicDiscrepancies(
+  params: { exam?: string } = {},
+): Promise<Paginated<PublicDiscrepancy>> {
+  const query = new URLSearchParams()
+  if (params.exam) query.set('exam', params.exam)
+  const suffix = query.toString()
+  return request<Paginated<PublicDiscrepancy>>(
+    `/api/discrepancy-feed/${suffix ? `?${suffix}` : ''}`,
+  )
 }

@@ -9,6 +9,7 @@ import {
   type ExamFilters,
   type ExamSummary,
 } from '../../api/types'
+import { DiscrepancyFeed } from '../discrepancies/DiscrepancyFeed'
 
 const SEARCH_DEBOUNCE_MS = 250
 
@@ -98,6 +99,14 @@ export function ExamList() {
   return (
     <div>
       <h2 className="mb-4 text-lg font-semibold text-gray-900">Exams</h2>
+
+      {/*
+        EXT-055. Above the filters on purpose: someone whose exam has been
+        postponed or whose paper leaked needs to know before they start
+        narrowing a list, and the panel renders nothing at all when there
+        is nothing to report.
+      */}
+      <DiscrepancyFeed />
 
       <form
         aria-label="Filters"

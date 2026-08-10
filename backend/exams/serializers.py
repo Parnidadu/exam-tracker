@@ -191,3 +191,49 @@ class DiscrepancyTransitionSerializer(serializers.Serializer):
                 {"resolution_note": "Say why this was resolved or dismissed."}
             )
         return attrs
+
+
+class PublicDiscrepancySerializer(serializers.ModelSerializer):
+    """What a candidate is allowed to see.
+
+    A separate serializer rather than a field subset toggled by role: the
+    two audiences differ in what they may know, and a single class with
+    conditional fields is one `if` away from leaking the wrong one.
+
+    Staff identities are absent entirely. VerificationRecordSerializer
+    already withholds the actor from anonymous callers because it is a
+    real staff email; a discrepancy is a more contentious record than a
+    verification, and naming the person who filed it serves no one the
+    feed exists for.
+    """
+
+    exam_slug = serializers.CharField(source="exam_stage.exam.slug", read_only=True)
+    exam_name = serializers.CharField(source="exam_stage.exam.name", read_only=True)
+    board_code = serializers.CharField(source="exam_stage.exam.board.code", read_only=True)
+    stage_type = serializers.CharField(source="exam_stage.stage_type", read_only=True)
+    type_label = serializers.CharField(source="get_discrepancy_type_display", read_only=True)
+
+    class Meta:
+        model = Discrepancy
+        fields = [
+            "id",
+            "exam_slug",
+            "exam_name",
+            "board_code",
+            "stage_type",
+            "discrepancy_type",
+            "type_label",
+            "severity",
+            "status",
+            "description",
+            # The point of the whole record: a claim a reader can go and
+            # check for themselves.
+            "evidence_url",
+            "occurred_on",
+            # Included on purpose. For a resolved discrepancy this is the
+            # part a candidate actually needs - "re-conducted on 12 March"
+            # is more use than the bare fact that something went wrong.
+            "resolution_note",
+            "resolved_at",
+        ]
+        read_only_fields = fields
