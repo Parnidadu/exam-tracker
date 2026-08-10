@@ -3,7 +3,15 @@ from django.http import JsonResponse
 from django.urls import path
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from exams.views import BoardListView, CalendarView, ExamDetailView, ExamListView
+from exams.views import (
+    BoardListView,
+    CalendarView,
+    DiscrepancyDetailView,
+    DiscrepancyListCreateView,
+    DiscrepancyTransitionView,
+    ExamDetailView,
+    ExamListView,
+)
 from verification.views import (
     ExamVerificationHistoryView,
     VerificationQueueView,
@@ -20,6 +28,17 @@ urlpatterns = [
     path("health/", health),
     path("api/boards/", BoardListView.as_view(), name="board-list"),
     path("api/calendar/", CalendarView.as_view(), name="calendar"),
+    path("api/discrepancies/", DiscrepancyListCreateView.as_view(), name="discrepancy-list"),
+    path(
+        "api/discrepancies/<int:pk>/",
+        DiscrepancyDetailView.as_view(),
+        name="discrepancy-detail",
+    ),
+    path(
+        "api/discrepancies/<int:pk>/transition/",
+        DiscrepancyTransitionView.as_view(),
+        name="discrepancy-transition",
+    ),
     path("api/exams/", ExamListView.as_view(), name="exam-list"),
     path("api/exams/<slug:slug>/", ExamDetailView.as_view(), name="exam-detail"),
     path(
